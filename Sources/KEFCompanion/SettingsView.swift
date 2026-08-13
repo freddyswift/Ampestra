@@ -80,6 +80,10 @@ private struct SettingsFocusSink: NSViewRepresentable {
         nsView.activateOnce(for: trigger)
     }
 
+    static func dismantleNSView(_ nsView: FocusSinkView, coordinator: Void) {
+        nsView.removeMouseDownMonitor()
+    }
+
     final class FocusSinkView: NSView {
         private var activatedTrigger: Int?
         private var pendingTrigger: Int?
@@ -89,16 +93,18 @@ private struct SettingsFocusSink: NSViewRepresentable {
             true
         }
 
-        deinit {
-            if let mouseDownMonitor {
-                NSEvent.removeMonitor(mouseDownMonitor)
-            }
-        }
-
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            guard window != nil else { return }
             installMouseDownMonitorIfNeeded()
             activatePendingTrigger()
+        }
+
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            if newWindow == nil {
+                removeMouseDownMonitor()
+            }
+            super.viewWillMove(toWindow: newWindow)
         }
 
         func activateOnce(for trigger: Int) {
@@ -127,6 +133,12 @@ private struct SettingsFocusSink: NSViewRepresentable {
                 self?.dismissTextFocusIfNeeded(for: event)
                 return event
             }
+        }
+
+        func removeMouseDownMonitor() {
+            guard let mouseDownMonitor else { return }
+            NSEvent.removeMonitor(mouseDownMonitor)
+            self.mouseDownMonitor = nil
         }
 
         private func dismissTextFocusIfNeeded(for event: NSEvent) {

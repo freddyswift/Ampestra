@@ -36,8 +36,9 @@ The original LS50 Wireless and LSX gen 1 are not supported.
 
 ## Permissions
 
-On first launch or discovery, macOS may ask for Local Network access. Allow it
-so KEF Companion can find and control speakers on your local network.
+KEF Companion asks for Local Network access after you choose **Find Speakers**,
+because it cannot discover or control a speaker without that access. It does not
+trigger the prompt merely by launching in the background.
 
 Keyboard volume-key control is optional. If you choose Auto or KEF mode, macOS
 also asks for broad Input Monitoring and Accessibility privileges. KEF Companion
@@ -47,7 +48,8 @@ or store keystrokes.
 - Input Monitoring, to receive keyboard volume-key events
 - Accessibility, to intercept those events before macOS changes system volume
 
-After changing Input Monitoring or Accessibility, quit and reopen KEF Companion.
+The app checks those settings again when you return to it. A restart is offered
+only if macOS grants both permissions but refuses to activate the key listener.
 
 ## Build From Source
 
@@ -83,10 +85,19 @@ button is enabled only for signed release builds with a Sparkle appcast.
 Contributor commands:
 
 - `make run` builds and launches the development app.
-- `make dev-reset` removes the development app and resets its macOS privacy prompts.
-- `make dev-fresh` resets, rebuilds, and launches a fresh development app.
+- `make dev-reset` removes the development app and resets its optional keyboard permissions.
+- `make dev-fresh` runs that targeted reset, then rebuilds and launches the development app.
 - `make app` stages `dist/KEF Companion.app`.
 - `make clean` removes build artifacts.
+
+macOS does not expose a supported way to reset Local Network access to its
+undetermined state. Development builds therefore keep one stable bundle identity
+instead of creating new identities to manufacture fresh prompts.
+
+The Dev bundle uses a small, fixed main launcher and loads the rebuilt Swift app
+from `Contents/Frameworks`. This keeps the executable UUID used by macOS Local
+Network privacy stable while normal source edits continue to rebuild immediately.
+Production bundles remain ordinary standalone executables.
 
 Use the `make` commands or `./script/swift.sh ...` for local SwiftPM work in
 this repository. On some macOS/Xcode beta setups, raw `swift ...` can resolve to

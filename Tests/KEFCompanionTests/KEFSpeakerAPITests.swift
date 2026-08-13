@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import XCTest
 @testable import KEFCompanion
 
@@ -88,6 +89,85 @@ final class KEFSpeakerAPITests: XCTestCase {
         XCTAssertEqual(body.value["kefPhysicalSource"], .string("tv"))
     }
 
+    func testSetDataAcceptsBooleanAcknowledgementForLSXII() async throws {
+        let (api, recorder) = makeAPI { request in
+            switch request.url.path {
+            case "/api/getData" where request.queryValue("path") == "settings:/releasetext":
+                return .json(#"[{"string_":"LSXII_V30137"}]"#)
+            case "/api/setData":
+                return .json("true")
+            default:
+                throw URLError(.badURL)
+            }
+        }
+
+        try await api.setVolume(40)
+
+        XCTAssertEqual(recorder.requests.last?.method, "POST")
+        XCTAssertEqual(recorder.requests.last?.url.path, "/api/setData")
+    }
+
+    func testSetDataUsesPostForLS60() async throws {
+        let (api, recorder) = makeAPI { request in
+            switch request.url.path {
+            case "/api/getData" where request.queryValue("path") == "settings:/releasetext":
+                return .json(#"[{"string_":"LS60_V31000"}]"#)
+            case "/api/setData":
+                return .json("true")
+            default:
+                throw URLError(.badURL)
+            }
+        }
+
+        try await api.setVolume(30)
+
+        XCTAssertEqual(recorder.requests.last?.method, "POST")
+    }
+
+    func testSetDataRejectsExplicitFalseAcknowledgement() async throws {
+        let (api, _) = makeAPI { request in
+            switch request.url.path {
+            case "/api/getData" where request.queryValue("path") == "settings:/releasetext":
+                return .json(#"[{"string_":"LSXII_V30137"}]"#)
+            case "/api/setData":
+                return .json("false")
+            default:
+                throw URLError(.badURL)
+            }
+        }
+
+        do {
+            try await api.setVolume(40)
+            XCTFail("Expected an explicit false acknowledgement to throw")
+        } catch KEFError.apiError(let message) {
+            XCTAssertEqual(message, "Speaker rejected command")
+        } catch {
+            XCTFail("Expected KEFError.apiError, got \(error)")
+        }
+    }
+
+    func testSetDataSurfacesStructuredSpeakerError() async throws {
+        let (api, _) = makeAPI { request in
+            switch request.url.path {
+            case "/api/getData" where request.queryValue("path") == "settings:/releasetext":
+                return .json(#"[{"string_":"LSXII_V30137"}]"#)
+            case "/api/setData":
+                return .json(#"{"error":{"message":"Volume unavailable"}}"#)
+            default:
+                throw URLError(.badURL)
+            }
+        }
+
+        do {
+            try await api.setVolume(40)
+            XCTFail("Expected the speaker error to throw")
+        } catch KEFError.apiError(let message) {
+            XCTAssertEqual(message, "Volume unavailable")
+        } catch {
+            XCTFail("Expected KEFError.apiError, got \(error)")
+        }
+    }
+
     func testGetDataThrowsAPIErrorForHTTPFailure() async throws {
         let (api, recorder) = makeAPI { _ in
             .empty(statusCode: 503)
@@ -103,6 +183,34 @@ final class KEFSpeakerAPITests: XCTestCase {
         }
 
         XCTAssertEqual(recorder.requests.count, 1)
+    }
+
+    func testDefaultSessionRejectsSpeakerControlledRedirects() async throws {
+        let redirectTarget = try LocalHTTPServer { _ in
+            Self.httpResponse(
+                status: "200 OK",
+                headers: ["Content-Type": "application/json"],
+                body: #"[{"kefSpeakerStatus":"powerOn"}]"#
+            )
+        }
+        let selectedSpeaker = try LocalHTTPServer { _ in
+            Self.httpResponse(
+                status: "302 Found",
+                headers: ["Location": "http://127.0.0.1:\(redirectTarget.port)/redirected-from-speaker"]
+            )
+        }
+        addTeardownBlock {
+            selectedSpeaker.stop()
+            redirectTarget.stop()
+        }
+
+        let api = KEFSpeakerAPI(host: "127.0.0.1:\(selectedSpeaker.port)")
+
+        let didConnect = await api.testConnection()
+        XCTAssertFalse(didConnect)
+        XCTAssertEqual(selectedSpeaker.requests.count, 1)
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(redirectTarget.requests.count, 0)
     }
 
     func testGetDataThrowsInvalidResponseForMalformedPayload() async throws {
@@ -196,6 +304,55 @@ final class KEFSpeakerAPITests: XCTestCase {
         )
     }
 
+    func testSnapshotFallsBackToIndividualRequestsWhenBatchedRequestReturnsAPIError() async throws {
+        let expectedBatchedPath = [
+            "settings:/kef/host/speakerStatus",
+            "settings:/kef/play/physicalSource",
+            "player:volume",
+            "settings:/deviceName",
+            "settings:/releasetext",
+        ].joined(separator: ",")
+
+        let (api, recorder) = makeAPI { request in
+            guard request.url.path == "/api/getData" else {
+                throw URLError(.badURL)
+            }
+
+            switch request.queryValue("path") {
+            case expectedBatchedPath:
+                return .json(#"{"error":{"message":"Node at path does not exist"}}"#, statusCode: 500)
+            case "settings:/kef/host/speakerStatus":
+                return .json(#"[{"kefSpeakerStatus":"powerOn"}]"#)
+            case "settings:/kef/play/physicalSource":
+                return .json(#"[{"kefPhysicalSource":"powerOn"}]"#)
+            case "player:volume":
+                return .json(#"[{"i32_":45}]"#)
+            case "settings:/deviceName":
+                return .json(#"[{"string_":"LSX II"}]"#)
+            case "settings:/releasetext":
+                return .json(#"[{"string_":"LSXII_V30137"}]"#)
+            default:
+                throw URLError(.badURL)
+            }
+        }
+
+        let snapshot = try await api.getSnapshot()
+
+        XCTAssertEqual(
+            snapshot,
+            SpeakerSnapshot(
+                status: .powerOn,
+                source: .wifi,
+                volume: 45,
+                name: "LSX II",
+                model: "LSXII"
+            )
+        )
+
+        XCTAssertEqual(recorder.requests.count, 6)
+        XCTAssertEqual(recorder.requests.first?.queryValue("path"), expectedBatchedPath)
+    }
+
     func testDecodesDynamicDataEntries() throws {
         let json = """
         [
@@ -225,6 +382,38 @@ final class KEFSpeakerAPITests: XCTestCase {
         XCTAssertThrowsError(try KEFSpeakerAPI.decodeDataEntries(Data(#"{"state":"playing"}"#.utf8)))
     }
 
+    func testRejectsResponsesLargerThanApplicationLimit() async throws {
+        let padding = String(repeating: "a", count: KEFSpeakerAPI.maximumResponseByteCount)
+        let (api, _) = makeAPI { _ in
+            .json(#"[{"kefSpeakerStatus":"powerOn","padding":"\#(padding)"}]"#)
+        }
+
+        do {
+            _ = try await api.getStatus()
+            XCTFail("Expected oversized payload to throw")
+        } catch KEFError.invalidResponse {
+            // Expected.
+        } catch {
+            XCTFail("Expected KEFError.invalidResponse, got \(error)")
+        }
+    }
+
+    func testRejectsTooManyDataEntries() {
+        let entry = #"{"kefSpeakerStatus":"powerOn"}"#
+        let json = "[" + Array(repeating: entry, count: 257).joined(separator: ",") + "]"
+
+        XCTAssertThrowsError(try KEFSpeakerAPI.decodeDataEntries(Data(json.utf8)))
+    }
+
+    func testRejectsDeeplyNestedDynamicValues() {
+        let nestedValue = (0..<40).reduce(#""leaf""#) { value, _ in
+            "[\(value)]"
+        }
+        let json = #"[{"kefSpeakerStatus":"powerOn","ignored":\#(nestedValue)}]"#
+
+        XCTAssertThrowsError(try KEFSpeakerAPI.decodeDataEntries(Data(json.utf8)))
+    }
+
     private func makeAPI(
         host: String = UUID().uuidString.lowercased() + ".test",
         responder: @escaping (RecordedHTTPRequest) throws -> StubbedHTTPResponse
@@ -237,7 +426,7 @@ final class KEFSpeakerAPITests: XCTestCase {
 
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]
-        let session = URLSession(configuration: configuration)
+        let session = KEFSpeakerAPI.makeDefaultSession(configuration: configuration)
 
         addTeardownBlock {
             session.invalidateAndCancel()
@@ -245,6 +434,27 @@ final class KEFSpeakerAPITests: XCTestCase {
         }
 
         return (KEFSpeakerAPI(host: host, session: session), recorder)
+    }
+
+    private static func httpResponse(
+        status: String,
+        headers: [String: String] = [:],
+        body: String = ""
+    ) -> String {
+        let bodyByteCount = Data(body.utf8).count
+        let headerLines = headers
+            .map { "\($0.key): \($0.value)" }
+            .sorted()
+            .joined(separator: "\r\n")
+        let extraHeaders = headerLines.isEmpty ? "" : "\(headerLines)\r\n"
+
+        return """
+        HTTP/1.1 \(status)\r
+        Content-Length: \(bodyByteCount)\r
+        Connection: close\r
+        \(extraHeaders)\r
+        \(body)
+        """
     }
 
     private func decodedSetValue(fromQueryOf request: RecordedHTTPRequest) throws -> [String: KEFJSONValue] {
@@ -257,6 +467,103 @@ final class KEFSpeakerAPITests: XCTestCase {
         let body = try XCTUnwrap(request.body)
         return try JSONDecoder().decode(DecodedSetDataRequest.self, from: body)
     }
+}
+
+private final class LocalHTTPServer: @unchecked Sendable {
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "LocalHTTPServer")
+    private let lock = NSLock()
+    private var storedRequests: [String] = []
+
+    private(set) var port: UInt16 = 0
+
+    var requests: [String] {
+        lock.withLock { storedRequests }
+    }
+
+    init(handler: @escaping (String) -> String) throws {
+        listener = try NWListener(using: .tcp, on: .any)
+        let ready = DispatchSemaphore(value: 0)
+        let startupError = LockedValue<NWError?>(nil)
+
+        listener.newConnectionHandler = { [weak self] connection in
+            self?.handle(connection, handler: handler)
+        }
+        listener.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                ready.signal()
+            case .failed(let error):
+                startupError.value = error
+                ready.signal()
+            default:
+                break
+            }
+        }
+        listener.start(queue: queue)
+
+        guard ready.wait(timeout: .now() + 2) == .success,
+              startupError.value == nil,
+              let port = listener.port?.rawValue else {
+            listener.cancel()
+            throw LocalHTTPServerError.startupFailed
+        }
+
+        self.port = port
+    }
+
+    func stop() {
+        listener.cancel()
+    }
+
+    private func handle(_ connection: NWConnection, handler: @escaping (String) -> String) {
+        connection.start(queue: queue)
+        receive(on: connection, bufferedData: Data(), handler: handler)
+    }
+
+    private func receive(
+        on connection: NWConnection,
+        bufferedData: Data,
+        handler: @escaping (String) -> String
+    ) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 4_096) { [weak self] data, _, _, error in
+            guard let self else {
+                connection.cancel()
+                return
+            }
+
+            var requestData = bufferedData
+            if let data {
+                requestData.append(data)
+            }
+
+            if requestData.range(of: Data("\r\n\r\n".utf8)) != nil,
+               let request = String(data: requestData, encoding: .utf8) {
+                self.record(request)
+                let response = handler(request)
+                connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in
+                    connection.cancel()
+                })
+                return
+            }
+
+            if error == nil {
+                self.receive(on: connection, bufferedData: requestData, handler: handler)
+            } else {
+                connection.cancel()
+            }
+        }
+    }
+
+    private func record(_ request: String) {
+        lock.withLock {
+            storedRequests.append(request)
+        }
+    }
+}
+
+private enum LocalHTTPServerError: Error {
+    case startupFailed
 }
 
 private struct DecodedSetDataRequest: Decodable {

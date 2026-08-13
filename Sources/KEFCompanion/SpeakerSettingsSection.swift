@@ -9,18 +9,32 @@ struct SpeakerSettingsSection: View {
         SettingsSection(title: "Speakers", systemImage: "hifispeaker") {
             speakerDiscoveryHeader
 
-            if appState.discovery.isSearching {
+            if appState.needsLocalNetworkAccess {
+                StatusRow(
+                    title: "Local Network access is blocked",
+                    detail: "macOS may show the switch as enabled while it refreshes this app's identity.",
+                    systemImage: "hand.raised.circle",
+                    tint: .orange
+                ) {
+                    Button("Open Settings") {
+                        appState.openLocalNetworkSettings()
+                    }
+                    .controlSize(.small)
+                }
+            } else if appState.discovery.isSearching {
                 StatusRow(title: "Scanning your network", detail: nil, systemImage: "dot.radiowaves.left.and.right", tint: .secondary) {
                     ProgressView()
                         .controlSize(.small)
                 }
             }
 
-            if displayedDiscoveredSpeakers.isEmpty && !appState.discovery.isSearching {
+            if displayedDiscoveredSpeakers.isEmpty,
+               !appState.discovery.isSearching,
+               !appState.needsLocalNetworkAccess {
                 StatusRow(
                     title: "No speakers found",
                     detail: "Open Advanced for manual connection options.",
-                    systemImage: "wifi.exclamationmark",
+                    systemImage: "hifispeaker",
                     tint: .secondary
                 )
             }
@@ -203,7 +217,8 @@ struct SpeakerSettingsSection: View {
     }()
 
     private func refreshDiscoveryIfNeeded() {
-        guard appState.useAutoDiscovery,
+        guard appState.hasStartedConnection,
+              appState.useAutoDiscovery,
               appState.discovery.speakers.isEmpty,
               !appState.discovery.isSearching else {
             return
@@ -213,6 +228,6 @@ struct SpeakerSettingsSection: View {
     }
 
     private func startDiscoveryFromSettings() {
-        appState.discovery.startDiscovery()
+        appState.scanForSpeakers()
     }
 }

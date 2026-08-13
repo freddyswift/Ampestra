@@ -13,7 +13,12 @@ usage() {
   cat <<EOF
 Usage: $(basename "$0") [--include-production-permissions]
 
-Removes the local KEF Companion Dev bundle and resets its macOS privacy decisions.
+Removes the local KEF Companion Dev bundle, clears its saved preferences, and
+resets every macOS privacy decision that tccutil supports for the Dev bundle.
+
+macOS does not provide a supported way to return Local Network access to its
+undetermined state on every OS release. `tccutil reset All` is still used so
+Local Network is cleared automatically on releases where Apple supports it.
 
 Options:
   --include-production-permissions
@@ -82,15 +87,19 @@ kill_dev_app_path_processes() {
 reset_privacy_for_bundle() {
   local bundle_id="$1"
 
-  echo "Resetting macOS privacy decisions for $bundle_id..."
-  if tccutil reset All "$bundle_id"; then
-    return
+  echo "Resetting macOS privacy permissions for $bundle_id..."
+  if ! tccutil reset All "$bundle_id"; then
+    echo "Full privacy reset was unavailable; resetting keyboard permissions individually."
+    tccutil reset Accessibility "$bundle_id" || true
+    tccutil reset ListenEvent "$bundle_id" || true
   fi
+}
 
-  echo "Full reset failed; trying known services individually..."
-  tccutil reset Accessibility "$bundle_id" || true
-  tccutil reset ListenEvent "$bundle_id" || true
-  tccutil reset PostEvent "$bundle_id" || true
+reset_preferences_for_bundle() {
+  local bundle_id="$1"
+
+  echo "Clearing saved preferences for $bundle_id..."
+  defaults delete "$bundle_id" >/dev/null 2>&1 || true
 }
 
 register_dev_bundle() {
@@ -108,6 +117,7 @@ register_dev_bundle() {
 
 kill_process_name "KEFCompanionDev"
 kill_dev_app_path_processes
+reset_preferences_for_bundle "$DEV_BUNDLE_ID"
 register_dev_bundle
 
 reset_privacy_for_bundle "$DEV_BUNDLE_ID"

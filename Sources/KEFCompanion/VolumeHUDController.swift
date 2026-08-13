@@ -24,8 +24,12 @@ final class VolumeHUDController {
         presentationID += 1
         let currentPresentationID = presentationID
         let panel = loadPanelIfNeeded()
-        model.title = title
-        model.volume = volume
+        if model.title != title {
+            model.title = title
+        }
+        if model.volume != volume {
+            model.volume = volume
+        }
         positionPanel(panel)
         panel.alphaValue = 1
         panel.orderFrontRegardless()

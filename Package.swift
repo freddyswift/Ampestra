@@ -4,11 +4,15 @@ import PackageDescription
 let package = Package(
     name: "KEFCompanion",
     platforms: [.macOS(.v14)],
+    products: [
+        .executable(name: "KEFCompanion", targets: ["KEFCompanionExecutable"]),
+        .library(name: "KEFCompanionDevPayload", type: .dynamic, targets: ["KEFCompanion"]),
+    ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.2")
     ],
     targets: [
-        .executableTarget(
+        .target(
             name: "KEFCompanion",
             dependencies: [
                 .product(name: "Sparkle", package: "Sparkle")
@@ -18,6 +22,11 @@ let package = Package(
             linkerSettings: [
                 .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])
             ]
+        ),
+        .executableTarget(
+            name: "KEFCompanionExecutable",
+            dependencies: ["KEFCompanion"],
+            path: "Sources/KEFCompanionExecutable"
         ),
         .testTarget(
             name: "KEFCompanionTests",

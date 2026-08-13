@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 @MainActor
@@ -6,7 +7,7 @@ final class AppState: ObservableObject {
     /// Media-key permissions are modeled separately from the chosen routing
     /// mode. A user can request KEF routing while macOS still blocks the event
     /// tap, so the UI needs to represent both preference and permission state.
-    enum MediaKeyAccessState {
+    enum MediaKeyAccessState: Equatable {
         case unknown
         case working
         case inputMonitoringNeeded
@@ -21,6 +22,8 @@ final class AppState: ObservableObject {
     @Published var connectionError: String?
     @Published var currentHost: String?
     @Published private(set) var isReconnecting = false
+    @Published private(set) var needsLocalNetworkAccess = false
+    @Published private(set) var hasStartedConnection = false
 
     // Speaker state
     @Published var speakerName: String = ""
@@ -31,6 +34,7 @@ final class AppState: ObservableObject {
     @Published private(set) var displayedVolume: Int = 0
     @Published var isPlaying = false
     @Published var nowPlaying: NowPlayingInfo?
+    @Published private(set) var actionError: String?
 
     // Busy state — set during actions that take time to reflect
     @Published var isBusy = false
@@ -38,17 +42,19 @@ final class AppState: ObservableObject {
     // Settings (persisted)
     @AppStorage("manualIP") var manualIP: String = ""
     @AppStorage("useAutoDiscovery") var useAutoDiscovery: Bool = true
-    @AppStorage("volumeKeyRoutingMode") var volumeKeyRoutingMode: VolumeKeyRoutingMode = .auto {
+    @AppStorage("volumeKeyRoutingMode") var volumeKeyRoutingMode: VolumeKeyRoutingMode = .mac {
         didSet {
+            if oldValue != volumeKeyRoutingMode {
+                objectWillChange.send()
+            }
             refreshMediaKeyAccessStatus()
         }
     }
     @AppStorage("useFixedVolumeSteps") private var storedUseFixedVolumeSteps: Bool = true
     @AppStorage("volumeStepSize") private var storedVolumeStepSize: Int = 5
     @AppStorage("hasCompletedOnboarding") var hasCompletedOnboarding: Bool = false
-    @AppStorage("hasRequestedMediaKeyAccess") private var hasRequestedMediaKeyAccess = false
-    @AppStorage("hasRequestedAccessibilityAccess") private var hasRequestedAccessibilityAccess = false
     @AppStorage("lastConnectedHost") private var lastConnectedHost: String = ""
+    @AppStorage("trustedSpeakerHosts") private var trustedSpeakerHostsStorage: String = ""
 
     // Discovery
     let discovery = KEFDiscovery()
@@ -57,7 +63,12 @@ final class AppState: ObservableObject {
     // coordinator, but long-lived loops and pure policies live in smaller types.
     private var speaker: KEFSpeakerClient?
     private var connectionTask: Task<Void, Never>?
+    private var busyActionTask: Task<Void, Never>?
+    private var busyActionGeneration = 0
     private let pollingController = SpeakerPollingController()
+    private var isRefreshInProgress = false
+    private var needsTrailingRefresh = false
+    private var lastPlaybackStateRefresh: ContinuousClock.Instant?
     private var consecutiveRefreshFailures = 0
     private var pendingCommittedVolume: Int?
     private var pendingVolumeResetTask: Task<Void, Never>?
@@ -65,7 +76,9 @@ final class AppState: ObservableObject {
     private let speakerClientFactory: any KEFSpeakerClientFactory
     private let timing: SpeakerTimingPolicy
     private let volumeCommandCoordinator = VolumeCommandCoordinator()
-    private var mediaKeyRestartWasRequestedThisSession = false
+    private var discoveryObservation: AnyCancellable?
+    private var hasRequestedMediaKeyAccess = false
+    private var hasRequestedAccessibilityAccess = false
     private let volumeHUD = VolumeHUDController()
     private var isVolumeHUDSuppressed = false
     private lazy var mediaKeyController = MediaKeyController(
@@ -96,6 +109,12 @@ final class AppState: ObservableObject {
         self.timing = timing
 
         migrateLegacyVolumeKeyPreference()
+        discovery.localNetworkAccessDeniedHandler = { [weak self] in
+            self?.handleLocalNetworkAccessDenied()
+        }
+        discoveryObservation = discovery.objectWillChange.sink { [weak self] in
+            self?.objectWillChange.send()
+        }
         refreshMediaKeyAccessStatus()
         if startImmediately {
             startConnection()
@@ -123,7 +142,7 @@ final class AppState: ObservableObject {
     }
 
     var usesDefaultControlPreferences: Bool {
-        useFixedVolumeSteps && volumeStepSize == 5 && volumeKeyRoutingMode == .auto
+        useFixedVolumeSteps && volumeStepSize == 5 && volumeKeyRoutingMode == .mac
     }
 
     func setUseFixedVolumeSteps(_ enabled: Bool) {
@@ -142,7 +161,7 @@ final class AppState: ObservableObject {
     func resetControlPreferences() {
         setUseFixedVolumeSteps(true)
         setVolumeStepSize(5)
-        volumeKeyRoutingMode = .auto
+        volumeKeyRoutingMode = .mac
     }
 
     private static func clampedVolumeStep(_ step: Int) -> Int {
@@ -164,51 +183,63 @@ final class AppState: ObservableObject {
     func refreshMediaKeyAccessStatus() {
         guard volumeKeyRoutingMode.requiresMediaKeyAccess else {
             mediaKeyController.invalidate()
-            mediaKeyRestartWasRequestedThisSession = false
-            needsRestartForMediaKeyAccess = false
-            mediaKeyAccessState = .unknown
-            mediaKeyAccessMessage = "Volume keys will control macOS system volume."
+            setMediaKeyAccessState(
+                .unknown,
+                message: "Volume keys will control macOS system volume."
+            )
             return
         }
 
         guard MediaKeyController.hasListenAccess else {
             mediaKeyController.invalidate()
-            needsRestartForMediaKeyAccess = mediaKeyRestartWasRequestedThisSession
-            mediaKeyAccessState = hasRequestedMediaKeyAccess ? .inputMonitoringDenied : .inputMonitoringNeeded
-            mediaKeyAccessMessage = hasRequestedMediaKeyAccess
-                ? "Enable \(appDisplayName) in Input Monitoring, then restart."
-                : "macOS grants broad key-listening access; \(appDisplayName) uses it only for volume media keys."
+            setMediaKeyAccessState(
+                hasRequestedMediaKeyAccess ? .inputMonitoringDenied : .inputMonitoringNeeded,
+                message: hasRequestedMediaKeyAccess
+                    ? "Turn on \(appDisplayName) in Input Monitoring, then return here."
+                    : "macOS grants broad key-listening access; \(appDisplayName) uses it only for volume media keys."
+            )
             return
         }
 
         guard MediaKeyController.hasAccessibilityAccess else {
             mediaKeyController.invalidate()
-            needsRestartForMediaKeyAccess = mediaKeyRestartWasRequestedThisSession
-            mediaKeyAccessState = hasRequestedAccessibilityAccess ? .accessibilityDenied : .accessibilityNeeded
-            mediaKeyAccessMessage = hasRequestedAccessibilityAccess
-                ? "Enable \(appDisplayName) in Accessibility, then restart."
-                : "\(appDisplayName) uses Accessibility only to intercept volume keys before macOS changes Mac volume."
+            setMediaKeyAccessState(
+                hasRequestedAccessibilityAccess ? .accessibilityDenied : .accessibilityNeeded,
+                message: hasRequestedAccessibilityAccess
+                    ? "Turn on \(appDisplayName) in Accessibility, then return here."
+                    : "\(appDisplayName) uses Accessibility only to intercept volume keys before macOS changes Mac volume."
+            )
             return
         }
 
         switch mediaKeyController.activate() {
         case .working:
-            mediaKeyAccessState = .working
-            mediaKeyRestartWasRequestedThisSession = false
-            needsRestartForMediaKeyAccess = false
-            mediaKeyAccessMessage = "Ready."
+            setMediaKeyAccessState(.working, message: "Ready.")
         case .missingAccessibility:
             mediaKeyController.invalidate()
-            needsRestartForMediaKeyAccess = mediaKeyRestartWasRequestedThisSession
-            mediaKeyAccessState = hasRequestedAccessibilityAccess ? .accessibilityDenied : .accessibilityNeeded
-            mediaKeyAccessMessage = hasRequestedAccessibilityAccess
-                ? "Enable \(appDisplayName) in Accessibility, then restart."
-                : "\(appDisplayName) uses Accessibility only to intercept volume keys before macOS changes Mac volume."
+            setMediaKeyAccessState(
+                hasRequestedAccessibilityAccess ? .accessibilityDenied : .accessibilityNeeded,
+                message: hasRequestedAccessibilityAccess
+                    ? "Turn on \(appDisplayName) in Accessibility, then return here."
+                    : "\(appDisplayName) uses Accessibility only to intercept volume keys before macOS changes Mac volume."
+            )
         case .failed:
-            mediaKeyAccessState = .failedToActivate
-            needsRestartForMediaKeyAccess = true
-            mediaKeyAccessMessage = "macOS refused the listener. Restart or re-add permissions."
+            setMediaKeyAccessState(
+                .failedToActivate,
+                message: "macOS refused the listener. Restart or re-add permissions.",
+                needsRestart: true
+            )
         }
+    }
+
+    private func setMediaKeyAccessState(
+        _ state: MediaKeyAccessState,
+        message: String,
+        needsRestart: Bool = false
+    ) {
+        updateIfChanged(\.mediaKeyAccessState, state)
+        updateIfChanged(\.mediaKeyAccessMessage, message)
+        updateIfChanged(\.needsRestartForMediaKeyAccess, needsRestart)
     }
 
     func requestMediaKeyAccess() {
@@ -219,15 +250,12 @@ final class AppState: ObservableObject {
 
         if !MediaKeyController.hasListenAccess {
             hasRequestedMediaKeyAccess = true
-            mediaKeyRestartWasRequestedThisSession = true
             MediaKeyController.requestListenAccess()
         } else if !MediaKeyController.hasAccessibilityAccess {
             hasRequestedAccessibilityAccess = true
-            mediaKeyRestartWasRequestedThisSession = true
             MediaKeyController.requestAccessibilityAccess()
         } else {
             mediaKeyController.invalidate()
-            mediaKeyRestartWasRequestedThisSession = true
         }
 
         refreshMediaKeyAccessStatus()
@@ -243,33 +271,63 @@ final class AppState: ObservableObject {
             return false
         }
 
-        if !isConnected {
-            return true
-        }
-
-        return volumeKeyRoutingMode.requiresMediaKeyAccess && mediaKeyAccessState != .working
+        return !isConnected
     }
 
     func openInputMonitoringSettings() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") else {
-            return
-        }
-        NSWorkspace.shared.open(url)
+        openPrivacySettings(anchor: "Privacy_ListenEvent")
     }
 
     func openAccessibilitySettings() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else {
-            return
-        }
-        NSWorkspace.shared.open(url)
+        openPrivacySettings(anchor: "Privacy_Accessibility")
     }
 
-    func openRequiredMediaKeySettings() {
-        switch mediaKeyAccessState {
-        case .accessibilityNeeded, .accessibilityDenied:
-            openAccessibilitySettings()
-        default:
-            openInputMonitoringSettings()
+    func openLocalNetworkSettings() {
+        openPrivacySettings(anchor: "Privacy_LocalNetwork")
+    }
+
+    private func openPrivacySettings(anchor: String) {
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)"
+        ) else {
+            return
+        }
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        configuration.promptsUserIfNeeded = true
+
+        // A MenuBarExtra window can retain activation while Launch Services
+        // opens System Settings behind it. Close our transient panel first,
+        // then activate Settings again after its destination window exists.
+        NSApp.keyWindow?.orderOut(nil)
+        NSApp.deactivate()
+
+        NSWorkspace.shared.open(url, configuration: configuration) { runningApplication, _ in
+            if let runningApplication {
+                Self.bringSystemSettingsToFront(runningApplication)
+                return
+            }
+
+            let settingsURL = URL(fileURLWithPath: "/System/Applications/System Settings.app")
+            let fallbackConfiguration = NSWorkspace.OpenConfiguration()
+            fallbackConfiguration.activates = true
+            NSWorkspace.shared.openApplication(
+                at: settingsURL,
+                configuration: fallbackConfiguration
+            ) { fallbackApplication, _ in
+                guard let fallbackApplication else { return }
+                Self.bringSystemSettingsToFront(fallbackApplication)
+            }
+        }
+    }
+
+    private nonisolated static func bringSystemSettingsToFront(_ application: NSRunningApplication) {
+        for delay in [0.0, 0.35, 1.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                application.unhide()
+                application.activate(options: [.activateAllWindows])
+            }
         }
     }
 
@@ -292,7 +350,28 @@ final class AppState: ObservableObject {
 
     // MARK: - Connection
 
+    func startConnectionIfNeeded() {
+        guard !hasStartedConnection, !isConnected, !isReconnecting else { return }
+        startConnection()
+    }
+
+    func startConnectionForReturningUserIfNeeded() {
+        guard hasCompletedOnboarding else { return }
+        startConnectionIfNeeded()
+    }
+
+    func scanForSpeakers() {
+        updateIfChanged(\.hasStartedConnection, true)
+        updateIfChanged(\.needsLocalNetworkAccess, false)
+        if !isConnected {
+            updateIfChanged(\.connectionError, nil)
+        }
+        discovery.startDiscovery()
+    }
+
     func startConnection() {
+        updateIfChanged(\.hasStartedConnection, true)
+        updateIfChanged(\.needsLocalNetworkAccess, false)
         disconnect()
 
         let manualHost = manualIP.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -307,9 +386,9 @@ final class AppState: ObservableObject {
         connectionTask = Task { @MainActor in
             var attemptedHosts = Set<String>()
 
-            if !lastConnectedHost.isEmpty {
-                attemptedHosts.insert(lastConnectedHost)
-                if await establishConnection(to: lastConnectedHost, retryCount: 2) {
+            if let trustedLastConnectedHost = trustedHostForAutoConnection(lastConnectedHost) {
+                attemptedHosts.insert(trustedLastConnectedHost)
+                if await establishConnection(to: trustedLastConnectedHost, retryCount: 2, trustOnSuccess: true) {
                     return
                 }
             }
@@ -318,13 +397,12 @@ final class AppState: ObservableObject {
             while ContinuousClock.now < deadline {
                 guard !Task.isCancelled else { return }
 
-                let candidates = discovery.speakers
-                    .map(\.host)
+                let candidates = trustedAutoConnectionCandidates(from: discovery.speakers)
                     .filter { !attemptedHosts.contains($0) }
 
                 for host in candidates {
                     attemptedHosts.insert(host)
-                    if await establishConnection(to: host, retryCount: 2) {
+                    if await establishConnection(to: host, retryCount: 2, trustOnSuccess: true) {
                         return
                     }
                 }
@@ -335,27 +413,35 @@ final class AppState: ObservableObject {
             guard !Task.isCancelled else { return }
             discovery.stopDiscovery()
             if speaker == nil {
-                isConnected = false
-                isReconnecting = false
-                connectionError = "No KEF speaker found"
+                updateIfChanged(\.isConnected, false)
+                updateIfChanged(\.isReconnecting, false)
+                updateIfChanged(\.connectionError, discovery.speakers.isEmpty
+                    ? "No KEF speaker found"
+                    : "Choose a discovered speaker to connect")
             }
         }
     }
 
     func connect(to host: String) {
+        updateIfChanged(\.hasStartedConnection, true)
+        updateIfChanged(\.needsLocalNetworkAccess, false)
         disconnect()
 
-        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedHost.isEmpty else { return }
+        guard let normalizedHost = ManualHostValidator.normalizedHost(host) else {
+            connectionError = "Enter a private local IP address or .local host."
+            return
+        }
 
         connectionTask = Task { @MainActor in
-            let connected = await establishConnection(to: trimmedHost, retryCount: 3)
+            let connected = await establishConnection(to: normalizedHost, retryCount: 3, trustOnSuccess: true)
             guard !Task.isCancelled else { return }
 
             if !connected {
-                isConnected = false
-                isReconnecting = false
-                connectionError = "Cannot reach speaker at \(trimmedHost)"
+                updateIfChanged(\.isConnected, false)
+                updateIfChanged(\.isReconnecting, false)
+                if connectionError == nil {
+                    connectionError = "Cannot reach speaker at \(normalizedHost)"
+                }
                 speaker = nil
                 currentHost = nil
             }
@@ -365,63 +451,117 @@ final class AppState: ObservableObject {
     func disconnect() {
         connectionTask?.cancel()
         connectionTask = nil
+        busyActionGeneration += 1
+        busyActionTask?.cancel()
+        busyActionTask = nil
         discovery.stopDiscovery()
         pollingController.stop()
         volumeCommandCoordinator.cancel()
+        needsTrailingRefresh = false
+        lastPlaybackStateRefresh = nil
         speaker = nil
-        isConnected = false
-        isReconnecting = false
-        currentHost = nil
-        connectionError = nil
+        updateIfChanged(\.isConnected, false)
+        updateIfChanged(\.isReconnecting, false)
+        updateIfChanged(\.needsLocalNetworkAccess, false)
+        updateIfChanged(\.currentHost, nil)
+        updateIfChanged(\.connectionError, nil)
         consecutiveRefreshFailures = 0
-        speakerName = ""
-        speakerModel = ""
-        status = .standby
-        source = .wifi
-        volume = 0
-        displayedVolume = 0
+        updateIfChanged(\.speakerName, "")
+        updateIfChanged(\.speakerModel, "")
+        updateIfChanged(\.status, .standby)
+        updateIfChanged(\.source, .wifi)
+        updateIfChanged(\.volume, 0)
+        updateIfChanged(\.displayedVolume, 0)
         volumeBeforeMediaKeyMute = nil
-        isPlaying = false
-        nowPlaying = nil
-        isBusy = false
+        updateIfChanged(\.isPlaying, false)
+        updateIfChanged(\.nowPlaying, nil)
+        updateIfChanged(\.actionError, nil)
+        updateIfChanged(\.isBusy, false)
         clearPendingVolume(keepDisplayedVolume: false)
         volumeHUD.hide()
     }
 
     func forgetSpeaker(host: String) {
-        let forgottenHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !forgottenHost.isEmpty else { return }
+        guard let forgottenHost = ManualHostValidator.normalizedHost(host) else { return }
+        let isForgettingCurrentSpeaker = ManualHostValidator.normalizedHost(currentHost ?? "") == forgottenHost
 
         objectWillChange.send()
-        if manualIP.trimmingCharacters(in: .whitespacesAndNewlines) == forgottenHost {
+        if ManualHostValidator.normalizedHost(manualIP) == forgottenHost {
             manualIP = ""
         }
-        if lastConnectedHost == forgottenHost {
+        removeTrustedHost(forgottenHost)
+        if ManualHostValidator.normalizedHost(lastConnectedHost) == forgottenHost {
             lastConnectedHost = ""
         }
 
-        if currentHost == forgottenHost {
+        if isForgettingCurrentSpeaker {
+            hasCompletedOnboarding = false
             disconnect()
         }
     }
 
+    private var trustedSpeakerHosts: Set<String> {
+        get {
+            Set(
+                trustedSpeakerHostsStorage
+                    .split(separator: "\n")
+                    .map(String.init)
+            )
+        }
+        set {
+            trustedSpeakerHostsStorage = newValue.sorted().joined(separator: "\n")
+        }
+    }
+
+    private func trustedHostForAutoConnection(_ host: String) -> String? {
+        guard let normalizedHost = ManualHostValidator.normalizedHost(host),
+              trustedSpeakerHosts.contains(normalizedHost) else {
+            return nil
+        }
+
+        return normalizedHost
+    }
+
+    func trustedAutoConnectionCandidates(from speakers: [DiscoveredSpeaker]) -> [String] {
+        speakers.compactMap { trustedHostForAutoConnection($0.host) }
+    }
+
+    private func trustSpeakerHost(_ host: String) {
+        guard let normalizedHost = ManualHostValidator.normalizedHost(host) else { return }
+        var hosts = trustedSpeakerHosts
+        guard hosts.insert(normalizedHost).inserted else { return }
+        trustedSpeakerHosts = hosts
+    }
+
+    private func removeTrustedHost(_ host: String) {
+        guard let normalizedHost = ManualHostValidator.normalizedHost(host) else { return }
+        var hosts = trustedSpeakerHosts
+        hosts.remove(normalizedHost)
+        trustedSpeakerHosts = hosts
+    }
+
     @discardableResult
-    private func establishConnection(to host: String, retryCount: Int) async -> Bool {
+    private func establishConnection(to host: String, retryCount: Int, trustOnSuccess: Bool) async -> Bool {
         let api = speakerClientFactory.makeClient(host: host)
         speaker = api
-        currentHost = host
-        isReconnecting = true
-        connectionError = nil
+        updateIfChanged(\.currentHost, host)
+        updateIfChanged(\.isReconnecting, true)
+        updateIfChanged(\.needsLocalNetworkAccess, false)
+        updateIfChanged(\.connectionError, nil)
+        var lastConnectionError: Error?
 
         for attempt in 0..<retryCount {
             guard !Task.isCancelled, self.speaker === api else { return false }
 
-            if await api.testConnection() {
+            do {
+                try await api.validateConnection()
                 guard !Task.isCancelled, self.speaker === api else { return false }
-                markConnectionHealthy(for: api, stopDiscovery: true)
+                markConnectionHealthy(for: api, stopDiscovery: true, trustHost: trustOnSuccess)
                 await refresh()
                 startPolling()
                 return true
+            } catch {
+                lastConnectionError = error
             }
 
             if attempt < retryCount - 1 {
@@ -431,10 +571,38 @@ final class AppState: ObservableObject {
 
         guard self.speaker === api else { return false }
         speaker = nil
-        currentHost = nil
-        isConnected = false
-        isReconnecting = false
+        updateIfChanged(\.currentHost, nil)
+        updateIfChanged(\.isConnected, false)
+        updateIfChanged(\.isReconnecting, false)
+        if let lastConnectionError {
+            applyConnectionFailure(lastConnectionError, host: host)
+        }
         return false
+    }
+
+    private func applyConnectionFailure(_ error: Error, host: String) {
+        if let urlError = error as? URLError, urlError.code == .notConnectedToInternet {
+            updateIfChanged(\.needsLocalNetworkAccess, true)
+            updateIfChanged(
+                \.connectionError,
+                "macOS reports that Local Network access is blocked, even though System Settings may show it as enabled."
+            )
+            return
+        }
+
+        updateIfChanged(\.needsLocalNetworkAccess, false)
+        updateIfChanged(\.connectionError, "Cannot reach speaker at \(host)")
+    }
+
+    private func handleLocalNetworkAccessDenied() {
+        connectionTask?.cancel()
+        connectionTask = nil
+        updateIfChanged(\.needsLocalNetworkAccess, true)
+        updateIfChanged(\.isReconnecting, false)
+        updateIfChanged(
+            \.connectionError,
+            "macOS reports that Local Network access is blocked, even though System Settings may show it as enabled."
+        )
     }
 
     // MARK: - Polling
@@ -454,7 +622,10 @@ final class AppState: ObservableObject {
     }
 
     private var isPlaybackStatePollingNeeded: Bool {
-        volumeKeyRoutingMode == .auto && source.usesPlaybackStateForVolumeRouting && status == .powerOn
+        volumeKeyRoutingMode == .auto
+            && mediaKeyAccessState == .working
+            && source.usesPlaybackStateForVolumeRouting
+            && status == .powerOn
     }
 
     /// Auto routing needs fresher playback state than the full 3-second refresh.
@@ -466,18 +637,31 @@ final class AppState: ObservableObject {
         }
 
         do {
-            let refreshedIsPlaying = try await speaker.getIsPlaying()
+            let playerState = try await speaker.getPlayerState()
             guard self.speaker === speaker else { return }
-            updateIfChanged(\.isPlaying, refreshedIsPlaying)
-            if !refreshedIsPlaying {
-                updateIfChanged(\.nowPlaying, nil)
-            }
+            applyPlayerState(playerState)
+            lastPlaybackStateRefresh = ContinuousClock.now
         } catch {
             guard self.speaker === speaker else { return }
         }
     }
 
     func refresh() async {
+        if isRefreshInProgress {
+            needsTrailingRefresh = true
+            return
+        }
+
+        isRefreshInProgress = true
+        defer { isRefreshInProgress = false }
+
+        repeat {
+            needsTrailingRefresh = false
+            await performRefresh()
+        } while needsTrailingRefresh
+    }
+
+    private func performRefresh() async {
         guard let speaker else { return }
 
         do {
@@ -492,19 +676,20 @@ final class AppState: ObservableObject {
             updateIfChanged(\.speakerName, snapshot.name)
             updateIfChanged(\.speakerModel, snapshot.model)
 
-            if snapshot.status == .powerOn, snapshot.source.usesPlaybackStateForVolumeRouting {
+            if snapshot.status == .powerOn,
+               snapshot.source.usesPlaybackStateForVolumeRouting,
+               !hasFreshPlaybackStateFromRoutingPoll {
                 let playerData = try? await speaker.getPlayerState()
                 guard self.speaker === speaker else { return }
                 if let playerData {
-                    updateIfChanged(\.isPlaying, playerData.isPlaying)
-                    updateIfChanged(\.nowPlaying, playerData.isPlaying ? playerData.nowPlaying : nil)
+                    applyPlayerState(playerData)
+                    lastPlaybackStateRefresh = ContinuousClock.now
                 } else {
-                    updateIfChanged(\.isPlaying, false)
-                    updateIfChanged(\.nowPlaying, nil)
+                    clearPlayerState()
                 }
-            } else {
-                updateIfChanged(\.isPlaying, false)
-                updateIfChanged(\.nowPlaying, nil)
+            } else if snapshot.status != .powerOn || !snapshot.source.usesPlaybackStateForVolumeRouting {
+                clearPlayerState()
+                lastPlaybackStateRefresh = nil
             }
 
             markConnectionHealthy(for: speaker)
@@ -518,15 +703,43 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func markConnectionHealthy(for speaker: KEFSpeakerClient, stopDiscovery: Bool = false) {
+    private var hasFreshPlaybackStateFromRoutingPoll: Bool {
+        guard isPlaybackStatePollingNeeded, let lastPlaybackStateRefresh else {
+            return false
+        }
+
+        return lastPlaybackStateRefresh.duration(to: ContinuousClock.now) < .seconds(2)
+    }
+
+    private func applyPlayerState(_ playerState: PlayerState) {
+        updateIfChanged(\.isPlaying, playerState.isPlaying)
+        updateIfChanged(\.nowPlaying, playerState.nowPlaying.hasInfo ? playerState.nowPlaying : nil)
+    }
+
+    private func clearPlayerState() {
+        updateIfChanged(\.isPlaying, false)
+        updateIfChanged(\.nowPlaying, nil)
+    }
+
+    private func markConnectionHealthy(
+        for speaker: KEFSpeakerClient,
+        stopDiscovery: Bool = false,
+        trustHost: Bool = false
+    ) {
         guard self.speaker === speaker else { return }
 
         consecutiveRefreshFailures = 0
-        isConnected = true
-        isReconnecting = false
-        currentHost = speaker.host
-        lastConnectedHost = speaker.host
-        connectionError = nil
+        updateIfChanged(\.isConnected, true)
+        updateIfChanged(\.isReconnecting, false)
+        updateIfChanged(\.currentHost, speaker.host)
+        if trustHost {
+            trustSpeakerHost(speaker.host)
+            if lastConnectedHost != speaker.host {
+                lastConnectedHost = speaker.host
+            }
+        }
+        updateIfChanged(\.connectionError, nil)
+        updateIfChanged(\.needsLocalNetworkAccess, false)
         if stopDiscovery {
             discovery.stopDiscovery()
         }
@@ -538,9 +751,9 @@ final class AppState: ObservableObject {
         consecutiveRefreshFailures += 1
 
         if consecutiveRefreshFailures >= 3 || !isConnected {
-            isConnected = false
-            isReconnecting = true
-            connectionError = "Reconnecting to speaker..."
+            updateIfChanged(\.isConnected, false)
+            updateIfChanged(\.isReconnecting, true)
+            updateIfChanged(\.connectionError, "Reconnecting to speaker...")
         }
     }
 
@@ -551,10 +764,11 @@ final class AppState: ObservableObject {
     }
 
     /// Poll rapidly until the expected condition is met, or timeout.
-    private func waitForState(timeout: Duration = .seconds(8), condition: @escaping () -> Bool) async {
+    private func waitForState(timeout: Duration = .seconds(8), condition: @escaping () -> Bool) async throws {
         let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
-            try? await timing.sleep(timing.stateRefreshPollInterval)
+            try Task.checkCancellation()
+            try await timing.sleep(timing.stateRefreshPollInterval)
             await refresh()
             if condition() { return }
         }
@@ -562,37 +776,45 @@ final class AppState: ObservableObject {
 
     // MARK: - Actions
 
-    private func runSpeakerAction(_ action: @escaping (KEFSpeakerClient) async throws -> Void) {
-        guard let speaker else { return }
+    private func runBusySpeakerAction(
+        _ action: @escaping @MainActor (KEFSpeakerClient) async throws -> Void
+    ) {
+        guard let speaker, !isBusy else { return }
 
-        Task {
-            do {
-                try await action(speaker)
-            } catch {
-                await handleSpeakerActionError(error, for: speaker)
+        updateIfChanged(\.actionError, nil)
+        updateIfChanged(\.isBusy, true)
+        busyActionGeneration += 1
+        let generation = busyActionGeneration
+
+        busyActionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if self.busyActionGeneration == generation {
+                    self.busyActionTask = nil
+                    self.updateIfChanged(\.isBusy, false)
+                }
             }
-        }
-    }
 
-    private func runBusySpeakerAction(_ action: @escaping (KEFSpeakerClient) async throws -> Void) {
-        guard let speaker else { return }
-
-        isBusy = true
-        Task {
-            defer { isBusy = false }
             do {
+                try Task.checkCancellation()
                 try await action(speaker)
+                try Task.checkCancellation()
+                guard self.speaker === speaker else { return }
+                self.updateIfChanged(\.actionError, nil)
+            } catch is CancellationError {
+                return
             } catch {
-                await handleSpeakerActionError(error, for: speaker)
+                await self.handleSpeakerActionError(error, for: speaker)
             }
         }
     }
 
     private func handleSpeakerActionError(_ error: Error, for speaker: KEFSpeakerClient) async {
         guard self.speaker === speaker else { return }
+        updateIfChanged(\.actionError, error.localizedDescription)
 
         if await speaker.testConnection() {
-            connectionError = error.localizedDescription
+            markConnectionHealthy(for: speaker)
             await refresh()
         } else {
             recordConnectionFailure(for: speaker)
@@ -607,16 +829,21 @@ final class AppState: ObservableObject {
         let clampedVolume = applyingStepPolicy
             ? volumePolicy.normalizedVolume(newVolume)
             : VolumePolicy.clampedVolume(newVolume)
+        updateIfChanged(\.actionError, nil)
         if clampedVolume > 0 {
             volumeBeforeMediaKeyMute = nil
         }
-        volume = clampedVolume
-        displayedVolume = clampedVolume
+        updateIfChanged(\.volume, clampedVolume)
+        updateIfChanged(\.displayedVolume, clampedVolume)
         pendingCommittedVolume = clampedVolume
         pendingVolumeResetTask?.cancel()
         pendingVolumeResetTask = Task { [weak self] in
             guard let self else { return }
-            try? await self.timing.sleep(self.timing.pendingVolumeRetention)
+            do {
+                try await self.timing.sleep(self.timing.pendingVolumeRetention)
+            } catch {
+                return
+            }
             if self.pendingCommittedVolume == clampedVolume {
                 self.clearPendingVolume()
             }
@@ -635,6 +862,7 @@ final class AppState: ObservableObject {
             timing: timing,
             didSendLatest: { [weak self] speaker in
                 guard let self, self.speaker === speaker else { return }
+                self.updateIfChanged(\.actionError, nil)
                 await self.refresh()
             },
             didFailLatest: { [weak self] error, speaker in
@@ -663,6 +891,10 @@ final class AppState: ObservableObject {
         }
     }
 
+    func toggleSpeakerMute() {
+        toggleMute()
+    }
+
     private var volumeHUDTitle: String {
         speakerModel.isEmpty ? speakerName : speakerModel
     }
@@ -673,9 +905,9 @@ final class AppState: ObservableObject {
 
         runBusySpeakerAction { speaker in
             try await speaker.setSource(newSource)
-            await self.waitForState { self.source == newSource || self.source != oldSource }
+            try await self.waitForState { self.source == newSource || self.source != oldSource }
             // Speaker may take a moment to settle the per-source volume
-            try? await self.timing.sleep(self.timing.sourceVolumeSettleDelay)
+            try await self.timing.sleep(self.timing.sourceVolumeSettleDelay)
             await self.refresh()
         }
     }
@@ -686,10 +918,10 @@ final class AppState: ObservableObject {
         runBusySpeakerAction { speaker in
             if wasPoweredOn {
                 try await speaker.shutdown()
-                await self.waitForState { self.status == .standby }
+                try await self.waitForState { self.status == .standby }
             } else {
                 try await speaker.powerOn()
-                await self.waitForState { self.status == .powerOn }
+                try await self.waitForState { self.status == .powerOn }
             }
         }
     }
@@ -699,22 +931,22 @@ final class AppState: ObservableObject {
 
         runBusySpeakerAction { speaker in
             try await speaker.togglePlayPause()
-            await self.waitForState(timeout: .seconds(4)) { self.isPlaying != wasPlaying }
+            try await self.waitForState(timeout: .seconds(4)) { self.isPlaying != wasPlaying }
         }
     }
 
     func nextTrack() {
-        runSpeakerAction { speaker in
+        runBusySpeakerAction { speaker in
             try await speaker.nextTrack()
-            try? await self.timing.sleep(self.timing.trackRefreshDelay)
+            try await self.timing.sleep(self.timing.trackRefreshDelay)
             await self.refresh()
         }
     }
 
     func previousTrack() {
-        runSpeakerAction { speaker in
+        runBusySpeakerAction { speaker in
             try await speaker.previousTrack()
-            try? await self.timing.sleep(self.timing.trackRefreshDelay)
+            try await self.timing.sleep(self.timing.trackRefreshDelay)
             await self.refresh()
         }
     }
@@ -729,10 +961,10 @@ final class AppState: ObservableObject {
             if remoteVolume == pendingCommittedVolume {
                 clearPendingVolume()
             } else {
-                displayedVolume = pendingCommittedVolume
+                updateIfChanged(\.displayedVolume, pendingCommittedVolume)
             }
         } else {
-            displayedVolume = remoteVolume
+            updateIfChanged(\.displayedVolume, remoteVolume)
             if remoteVolume > 0 {
                 volumeBeforeMediaKeyMute = nil
             }
@@ -744,7 +976,7 @@ final class AppState: ObservableObject {
         pendingVolumeResetTask?.cancel()
         pendingVolumeResetTask = nil
         if keepDisplayedVolume {
-            displayedVolume = volume
+            updateIfChanged(\.displayedVolume, volume)
         }
     }
 
@@ -822,11 +1054,13 @@ final class AppState: ObservableObject {
     }
 
     private var preferredWakeHost: String? {
-        if !lastConnectedHost.isEmpty {
-            return lastConnectedHost
+        if let trustedLastConnectedHost = trustedHostForAutoConnection(lastConnectedHost) {
+            return trustedLastConnectedHost
         }
 
-        return discovery.speakers.first?.host
+        return discovery.speakers
+            .compactMap { trustedHostForAutoConnection($0.host) }
+            .first
     }
 }
 

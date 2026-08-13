@@ -165,7 +165,7 @@ struct AdvancedConnectionOptionsSection: View {
     }
 
     private func startDiscoveryFromSettings() {
-        appState.discovery.startDiscovery()
+        appState.scanForSpeakers()
     }
 
     private func applyIP() {

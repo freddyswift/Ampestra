@@ -23,7 +23,10 @@ final class MediaKeyController {
     }
 
     static func requestAccessibilityAccess() {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        // The imported SDK declaration is mutable for C ABI compatibility and
+        // therefore fails Swift's strict-concurrency checks. The documented
+        // Core Accessibility key has this stable string value.
+        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
     }
 

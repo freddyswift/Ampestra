@@ -4,15 +4,24 @@ import Network
 
 @MainActor
 final class KEFDiscovery: ObservableObject {
+    private struct ServiceResolutionID: Hashable {
+        var name: String
+        var type: String
+        var domain: String
+    }
+
     @Published var speakers: [DiscoveredSpeaker] = []
     @Published var isSearching = false
     @Published private(set) var lastError: String?
     @Published private(set) var lastStartedAt: Date?
 
+    var localNetworkAccessDeniedHandler: (() -> Void)?
+
     private var httpBrowser: NWBrowser?
     private var raopBrowser: NWBrowser?
     private var stopTask: Task<Void, Never>?
     private var discoveredMACs: [String: String] = [:]
+    private var scheduledHTTPServices: Set<ServiceResolutionID> = []
     private var discoveryGeneration = 0
 
     func startDiscovery() {
@@ -22,6 +31,7 @@ final class KEFDiscovery: ObservableObject {
 
         speakers = []
         discoveredMACs = [:]
+        scheduledHTTPServices = []
         lastError = nil
         lastStartedAt = Date()
         isSearching = true
@@ -53,7 +63,7 @@ final class KEFDiscovery: ObservableObject {
                 self?.handleBrowserState(state, label: "RAOP", generation: generation)
             }
         }
-        raopBrowser?.start(queue: .global())
+        raopBrowser?.start(queue: .global(qos: .utility))
 
         httpBrowser = NWBrowser(for: .bonjour(type: "_http._tcp", domain: nil), using: params)
         httpBrowser?.browseResultsChangedHandler = { [weak self] results, _ in
@@ -61,7 +71,14 @@ final class KEFDiscovery: ObservableObject {
                 guard case .service(let name, let type, let domain, _) = result.endpoint,
                       Self.isLikelyKEFSpeakerService(name) else { continue }
 
-                self?.resolveService(name: name, type: type, domain: domain, generation: generation)
+                Task { @MainActor in
+                    self?.scheduleServiceResolution(
+                        name: name,
+                        type: type,
+                        domain: domain,
+                        generation: generation
+                    )
+                }
             }
         }
         httpBrowser?.stateUpdateHandler = { [weak self] state in
@@ -69,7 +86,7 @@ final class KEFDiscovery: ObservableObject {
                 self?.handleBrowserState(state, label: "HTTP", generation: generation)
             }
         }
-        httpBrowser?.start(queue: .global())
+        httpBrowser?.start(queue: .global(qos: .utility))
 
         stopTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(10))
@@ -103,6 +120,7 @@ final class KEFDiscovery: ObservableObject {
         guard generation == discoveryGeneration else { return }
 
         let normalizedName = Self.normalizedServiceName(speakerName)
+        guard discoveredMACs[normalizedName] != macAddress else { return }
         discoveredMACs[normalizedName] = macAddress
 
         guard let index = speakers.firstIndex(where: {
@@ -121,10 +139,12 @@ final class KEFDiscovery: ObservableObject {
     }
 
     private func addSpeaker(name: String, host: String) {
+        guard let normalizedHost = ManualHostValidator.normalizedDiscoveryHost(host) else { return }
+
         let displayName = Self.displayName(fromServiceName: name)
         let macAddress = discoveredMACs[Self.normalizedServiceName(name)]
 
-        if let index = speakers.firstIndex(where: { $0.host == host }) {
+        if let index = speakers.firstIndex(where: { $0.host == normalizedHost }) {
             guard speakers[index].macAddress == nil, let macAddress else { return }
 
             let speaker = speakers[index]
@@ -138,7 +158,7 @@ final class KEFDiscovery: ObservableObject {
         }
 
         speakers.append(
-            DiscoveredSpeaker(id: host, name: displayName, host: host, macAddress: macAddress)
+            DiscoveredSpeaker(id: normalizedHost, name: displayName, host: normalizedHost, macAddress: macAddress)
         )
     }
 
@@ -146,6 +166,10 @@ final class KEFDiscovery: ObservableObject {
         guard generation == discoveryGeneration else { return }
 
         switch state {
+        case .waiting(let error) where Self.isLocalNetworkPolicyDenied(error):
+            lastError = "Local Network access is off."
+            localNetworkAccessDeniedHandler?()
+            stopDiscovery(generation: generation)
         case .failed(let error):
             lastError = "\(label) discovery failed: \(error.localizedDescription)"
             isSearching = false
@@ -156,22 +180,34 @@ final class KEFDiscovery: ObservableObject {
         }
     }
 
+    nonisolated static func isLocalNetworkPolicyDenied(_ error: NWError) -> Bool {
+        guard case .dns(let errorCode) = error else { return false }
+        return errorCode == kDNSServiceErr_PolicyDenied
+    }
+
     /// Resolve a Bonjour service to an IPv4 address using dns_sd APIs.
     ///
     /// NWConnection's IP resolution can return IPv6-only on some networks,
     /// so we use DNSServiceResolve to get the actual .local hostname, then
     /// getaddrinfo to look up the IPv4 address.
-    nonisolated private func resolveService(name: String, type: String, domain: String, generation: Int) {
-        DispatchQueue.global().async { [weak self] in
-            guard let hostname = Self.resolveServiceHostname(name: name, type: type, domain: domain) else {
-                return
-            }
-            let host = Self.resolveToIPv4(hostname) ?? hostname
+    private func scheduleServiceResolution(name: String, type: String, domain: String, generation: Int) {
+        guard generation == discoveryGeneration else { return }
 
-            Task { @MainActor in
-                guard let self, self.discoveryGeneration == generation else { return }
-                self.addSpeaker(name: name, host: host)
+        let id = ServiceResolutionID(name: name, type: type, domain: domain)
+        guard scheduledHTTPServices.insert(id).inserted else { return }
+
+        let resolutionTask = Task.detached(priority: .utility) { () -> String? in
+            guard let hostname = Self.resolveServiceHostname(name: name, type: type, domain: domain) else {
+                return nil
             }
+            return Self.resolveToIPv4(hostname) ?? hostname
+        }
+
+        Task { @MainActor [weak self] in
+            guard let host = await resolutionTask.value,
+                  let self,
+                  self.discoveryGeneration == generation else { return }
+            self.addSpeaker(name: name, host: host)
         }
     }
 

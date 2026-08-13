@@ -7,13 +7,10 @@ import SwiftUI
 /// power, source, playback, and volume controls from `AppState`, while network
 /// side effects stay in the state/controller layer.
 struct SpeakerMenuView: View {
-    private let groupedShape = RoundedRectangle(cornerRadius: 14, style: .continuous)
-
     @Environment(\.openSettings) private var openSettings
     @EnvironmentObject var appState: AppState
 
     @State private var sliderVolume: Double = 0
-    @State private var isDraggingVolume = false
     @State private var panel: Panel = .controls
 
     private enum Panel: Hashable {
@@ -33,7 +30,6 @@ struct SpeakerMenuView: View {
                         setPanel(.controls)
                     },
                     settingsAction: {
-                        appState.completeOnboarding()
                         showSettingsFrontmost()
                         setPanel(.controls)
                     }
@@ -50,6 +46,7 @@ struct SpeakerMenuView: View {
                 setPanel(.onboarding)
             } else {
                 appState.completeOnboarding()
+                appState.startConnectionIfNeeded()
             }
         }
     }
@@ -77,11 +74,19 @@ struct SpeakerMenuView: View {
             headerSection
             subtleDivider
 
-            if appState.isConnected {
-                connectedContent
-            } else {
-                disconnectedContent
+            ScrollView {
+                Group {
+                    if appState.isConnected {
+                        connectedContent
+                    } else {
+                        disconnectedContent
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
+            .scrollIndicators(.never)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxHeight: 520)
 
             subtleDivider
             footerActions
@@ -90,9 +95,7 @@ struct SpeakerMenuView: View {
         .frame(width: MenuPanelLayout.width, alignment: .topLeading)
         .menuPanelSurface()
         .onChange(of: appState.displayedVolume) { _, newValue in
-            if !isDraggingVolume {
-                sliderVolume = Double(newValue)
-            }
+            sliderVolume = Double(newValue)
         }
         .onAppear {
             appState.setVolumeHUDSuppressed(true)
@@ -116,72 +119,152 @@ struct SpeakerMenuView: View {
             if appState.status == .powerOn {
                 volumeSection
 
-                if supportsPlayerMetadata, appState.isPlaying, let nowPlaying = appState.nowPlaying, nowPlaying.hasInfo {
-                    nowPlayingSection(nowPlaying)
-                }
-
                 if supportsPlayerMetadata {
                     playbackSection
                 }
+            }
+
+            if let actionError = appState.actionError {
+                Label(actionError, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel("Speaker action failed: \(actionError)")
             }
         }
     }
 
     private var disconnectedContent: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 12) {
-                ZStack {
-                    Circle()
-                        .fill(Color(nsColor: .selectedControlColor).opacity(0.12))
-                        .frame(width: 42, height: 42)
-
-                    Image(systemName: appState.connectionError == nil ? "hifispeaker" : "wifi.exclamationmark")
-                        .font(.system(size: 19, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(disconnectedTitle)
-                        .font(.subheadline.weight(.semibold))
-                    Text(disconnectedMessage)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            if hasSelectableSpeakers {
+                selectableSpeakersSection
+            } else {
+                disconnectedActions
             }
 
-            HStack(spacing: 8) {
-                if appState.speakerMAC != nil {
-                    Button("Wake Speaker") {
-                        appState.wakeSpeaker()
-                    }
-                    .controlSize(.small)
-                    .panelFloatingButtonStyle()
-                    .disabled(appState.isBusy)
-                }
-
-                Button(appState.connectionError == nil ? "Retry" : "Try Again") {
-                    appState.startConnection()
+            if appState.needsLocalNetworkAccess {
+                Button {
+                    appState.openLocalNetworkSettings()
+                } label: {
+                    Label("Open Local Network Settings", systemImage: "gearshape")
                 }
                 .controlSize(.small)
                 .panelFloatingButtonStyle(prominent: true)
-                .disabled(appState.isBusy)
-            }
-
-            if appState.isBusy {
-                Label("Waking speaker…", systemImage: "bolt.circle")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else if appState.isReconnecting {
-                Label("Reconnecting to speaker…", systemImage: "dot.radiowaves.left.and.right")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else if appState.discovery.isSearching {
-                Label("Searching for speakers…", systemImage: "dot.radiowaves.left.and.right")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
+    }
+
+    private var selectableSpeakersSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
+                sectionLabel("Available")
+
+                Spacer(minLength: 8)
+
+                Button {
+                    appState.scanForSpeakers()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .frame(width: 18, height: 18)
+                }
+                .controlSize(.small)
+                .panelFloatingButtonStyle()
+                .help("Rescan")
+                .disabled(appState.discovery.isSearching || appState.isBusy)
+            }
+
+            ForEach(Array(selectableSpeakers.prefix(3))) { speaker in
+                selectableSpeakerRow(speaker)
+            }
+
+            if selectableSpeakers.count > 3 {
+                Button {
+                    showSettingsFrontmost()
+                } label: {
+                    Label("\(selectableSpeakers.count - 3) more in Settings", systemImage: "ellipsis.circle")
+                }
+                .buttonStyle(.plain)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func selectableSpeakerRow(_ speaker: DiscoveredSpeaker) -> some View {
+        HStack(alignment: .center, spacing: 9) {
+            Image(systemName: "hifispeaker.fill")
+                .foregroundStyle(.blue)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(speaker.name)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+
+                Text(speaker.host)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            Button {
+                appState.connect(to: speaker.host)
+            } label: {
+                if isConnecting(to: speaker) {
+                    Label("Connecting…", systemImage: "ellipsis")
+                } else {
+                    Label("Connect", systemImage: "link")
+                }
+            }
+            .controlSize(.small)
+            .disabled(appState.isBusy || appState.isReconnecting)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .panelSolidCardBackground(
+            RoundedRectangle(cornerRadius: 8, style: .continuous),
+            fillOpacity: 0.20,
+            strokeOpacity: 0.14
+        )
+    }
+
+    private var disconnectedActions: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                disconnectedActionButtons
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                disconnectedActionButtons
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var disconnectedActionButtons: some View {
+        if appState.speakerMAC != nil {
+            Button("Wake Speaker") {
+                appState.wakeSpeaker()
+            }
+            .controlSize(.small)
+            .panelFloatingButtonStyle()
+            .disabled(appState.isBusy || appState.isReconnecting)
+        }
+
+        Button(reconnectButtonTitle) {
+            appState.startConnection()
+        }
+        .controlSize(.small)
+        .panelFloatingButtonStyle(prominent: true)
+        .disabled(appState.isBusy || appState.isReconnecting || appState.discovery.isSearching)
+
+        Button("Connection Settings") {
+            showSettingsFrontmost()
+        }
+        .controlSize(.small)
+        .panelFloatingButtonStyle()
     }
 
     private var headerSection: some View {
@@ -196,12 +279,6 @@ struct SpeakerMenuView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
 
-                if appState.isConnected, let host = appState.currentHost {
-                    Label(host, systemImage: "dot.radiowaves.left.and.right")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
             }
 
             Spacer(minLength: 8)
@@ -262,93 +339,39 @@ struct SpeakerMenuView: View {
     }
 
     private var volumeSection: some View {
-        groupedSection {
-            HStack(alignment: .firstTextBaseline) {
-                sectionLabel("Volume")
-                Spacer()
-                Text("\(Int(sliderVolume))")
-                    .font(.system(.title3, design: .rounded).weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            }
-
-            HStack(spacing: 10) {
-                Image(systemName: volumeIcon)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 18)
-
-                Slider(value: $sliderVolume, in: 0...100, step: appState.volumeSliderStep) { editing in
-                    isDraggingVolume = editing
-                    if !editing {
-                        appState.commitVolume(Int(sliderVolume))
-                    }
-                }
-                .disabled(appState.isBusy || appState.status != .powerOn)
-            }
-        }
-    }
-
-    private func nowPlayingSection(_ info: NowPlayingInfo) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            sectionLabel("Now Playing")
-
-            if let title = info.title {
-                Text(title)
-                    .font(.callout.weight(.semibold))
-                    .lineLimit(1)
-            }
-
-            if let artist = info.artist {
-                Text(artist)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            if let album = info.album {
-                Text(album)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-        }
+        MenuBarVolumeControl(
+            volume: $sliderVolume,
+            step: appState.volumeSliderStep,
+            isDisabled: appState.isBusy || appState.status != .powerOn,
+            volumeChanged: { newVolume in
+                guard newVolume != appState.displayedVolume else { return }
+                appState.commitVolume(newVolume)
+            },
+            muteAction: appState.toggleSpeakerMute
+        )
     }
 
     private var playbackSection: some View {
-        groupedSection {
-            sectionLabel("Playback")
-
-            HStack(spacing: 8) {
-                Spacer()
-
-                playbackButton(systemName: "backward.fill") {
-                    appState.previousTrack()
-                }
-
-                playbackButton(systemName: appState.isPlaying ? "pause.fill" : "play.fill") {
-                    appState.togglePlayPause()
-                }
-                .disabled(appState.isBusy)
-
-                playbackButton(systemName: "forward.fill") {
-                    appState.nextTrack()
-                }
-
-                Spacer()
-            }
-        }
+        MenuBarPlaybackSection(
+            nowPlaying: appState.nowPlaying,
+            isPlaying: appState.isPlaying,
+            isBusy: appState.isBusy,
+            previousAction: appState.previousTrack,
+            playPauseAction: appState.togglePlayPause,
+            nextAction: appState.nextTrack
+        )
     }
 
     private var footerActions: some View {
         HStack(spacing: 12) {
-            Button("Quit KEF Companion") {
+            Button("Quit") {
                 NSApplication.shared.terminate(nil)
             }
 
             Spacer()
 
-            Button("Settings") {
-                showSettingsFrontmost()
+            Button(action: showSettingsFrontmost) {
+                Label("Settings", systemImage: "gearshape")
             }
         }
         .buttonStyle(.plain)
@@ -382,6 +405,9 @@ struct SpeakerMenuView: View {
             return "Updating"
         }
         if !appState.isConnected {
+            if hasSelectableSpeakers {
+                return "Available"
+            }
             if appState.isReconnecting {
                 return "Reconnecting"
             }
@@ -395,6 +421,9 @@ struct SpeakerMenuView: View {
 
     private var statusBadgeColor: Color {
         if !appState.isConnected {
+            if hasSelectableSpeakers {
+                return .blue
+            }
             return appState.connectionError == nil && !appState.isReconnecting ? .gray : .orange
         }
         return appState.status == .powerOn ? .green : .gray
@@ -404,15 +433,23 @@ struct SpeakerMenuView: View {
         if appState.isConnected {
             return appState.speakerName.isEmpty ? "KEF Speaker" : appState.speakerName
         }
-        return "KEF Companion"
+        return disconnectedTitle
     }
 
     private var headerSubtitle: String {
         if appState.isConnected {
-            if !appState.speakerModel.isEmpty {
-                return appState.speakerModel
-            }
-            return "Connected"
+            let detail = [appState.speakerModel.nilIfEmpty, appState.currentHost]
+                .compactMap { $0 }
+                .joined(separator: " • ")
+            return detail.isEmpty ? "Connected" : detail
+        }
+
+        if hasSelectableSpeakers {
+            return "Select a speaker below to connect."
+        }
+
+        if let reconnectingHostDescription {
+            return reconnectingHostDescription
         }
 
         if let error = appState.connectionError, !error.isEmpty {
@@ -421,10 +458,16 @@ struct SpeakerMenuView: View {
 
         return appState.discovery.isSearching
             ? "Looking for speakers on your network"
-            : "Menu bar controls for your KEF speaker"
+            : "Rescan or open Connection Settings to add a speaker."
     }
 
     private var disconnectedTitle: String {
+        if appState.isBusy {
+            return "Waking speaker"
+        }
+        if hasSelectableSpeakers {
+            return "Choose a speaker"
+        }
         if appState.isReconnecting {
             return "Reconnecting"
         }
@@ -437,29 +480,12 @@ struct SpeakerMenuView: View {
         return "No speaker connected"
     }
 
-    private var disconnectedMessage: String {
-        if appState.isReconnecting, let host = appState.currentHost {
-            return "Trying \(host) again. Controls will return when the speaker responds."
-        }
-        if let error = appState.connectionError, !error.isEmpty {
-            return error
-        }
-        if appState.discovery.isSearching {
-            return "KEF Companion is scanning the local network for compatible speakers."
-        }
-        return "Retry the connection or wake the last known speaker to get back to playback quickly."
+    private var selectableSpeakers: [DiscoveredSpeaker] {
+        appState.discovery.speakers
     }
 
-    private var volumeIcon: String {
-        if sliderVolume == 0 {
-            return "speaker.slash.fill"
-        } else if sliderVolume < 33 {
-            return "speaker.wave.1.fill"
-        } else if sliderVolume < 66 {
-            return "speaker.wave.2.fill"
-        } else {
-            return "speaker.wave.3.fill"
-        }
+    private var hasSelectableSpeakers: Bool {
+        !selectableSpeakers.isEmpty
     }
 
     private var supportsPlayerMetadata: Bool {
@@ -473,21 +499,28 @@ struct SpeakerMenuView: View {
             .textCase(.uppercase)
     }
 
-    private func groupedSection<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            content()
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .panelSolidCardBackground(groupedShape, fillOpacity: 0.24, strokeOpacity: 0.14)
+    private var reconnectingHostDescription: String? {
+        guard appState.isReconnecting, let host = appState.currentHost else { return nil }
+        return "Trying \(host) again."
     }
 
-    private func playbackButton(systemName: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .frame(width: 24, height: 24)
+    private var reconnectButtonTitle: String {
+        if appState.isReconnecting {
+            return "Reconnecting…"
         }
-        .controlSize(.small)
-        .panelFloatingButtonStyle()
+        if appState.discovery.isSearching {
+            return "Scanning…"
+        }
+        return "Rescan"
+    }
+
+    private func isConnecting(to speaker: DiscoveredSpeaker) -> Bool {
+        appState.isReconnecting && appState.currentHost == speaker.host
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }

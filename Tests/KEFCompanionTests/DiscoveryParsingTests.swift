@@ -1,3 +1,5 @@
+import Darwin
+import Network
 import XCTest
 @testable import KEFCompanion
 
@@ -16,5 +18,14 @@ final class DiscoveryParsingTests: XCTestCase {
     func testNormalizesHostnameAndServiceName() {
         XCTAssertEqual(KEFDiscovery.normalizedHostname("Speaker-Kitchen.local."), "speaker-kitchen.local")
         XCTAssertEqual(KEFDiscovery.normalizedServiceName("  KEF   LS50 Wireless II  "), "kef ls50 wireless ii")
+    }
+
+    func testRecognizesLocalNetworkPolicyDenial() {
+        XCTAssertTrue(
+            KEFDiscovery.isLocalNetworkPolicyDenied(.dns(Int32(kDNSServiceErr_PolicyDenied)))
+        )
+        XCTAssertFalse(
+            KEFDiscovery.isLocalNetworkPolicyDenied(.posix(.ECONNREFUSED))
+        )
     }
 }

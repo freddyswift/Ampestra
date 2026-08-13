@@ -1,36 +1,44 @@
+import AppKit
 import SwiftUI
 
-/// First-run panel that resolves the two setup requirements: finding a speaker
-/// and choosing keyboard-volume behavior. It exits automatically once the
-/// stored app state no longer needs onboarding.
+/// First-run speaker setup. Local Network access is requested only after the
+/// user chooses to find a speaker; optional keyboard permissions live in
+/// Settings alongside the feature that needs them.
 struct OnboardingView: View {
     @EnvironmentObject var appState: AppState
 
     let doneAction: () -> Void
     let settingsAction: () -> Void
 
-    private var appDisplayName: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
-            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
-            ?? "KEF Companion"
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
-            speakerStatusCard
-            keyboardChoiceCard
+            ScrollView {
+                speakerStatusCard
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+            .scrollIndicators(.never)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxHeight: 520)
             footer
         }
         .padding(16)
         .frame(width: MenuPanelLayout.width, alignment: .topLeading)
         .menuPanelSurface()
         .onAppear {
-            appState.refreshMediaKeyAccessStatus()
             if !appState.shouldShowOnboarding {
                 appState.completeOnboarding()
                 doneAction()
             }
+        }
+        .onChange(of: appState.isConnected) { _, isConnected in
+            guard isConnected else { return }
+            appState.completeOnboarding()
+            doneAction()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            guard appState.hasStartedConnection, appState.needsLocalNetworkAccess else { return }
+            appState.startConnection()
         }
     }
 
@@ -49,106 +57,123 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Welcome to KEF Companion")
                     .font(.headline.weight(.semibold))
-                Text("Connect a speaker and choose where volume keys go.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text("Connect to a KEF speaker on your local network.")
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(PanelColors.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 
     private var speakerStatusCard: some View {
-        OnboardingCard(title: "Speaker", systemImage: "hifispeaker") {
+        OnboardingCard(title: "Choose Speaker", systemImage: "hifispeaker") {
             StatusRow(
                 title: speakerStatusTitle,
                 detail: speakerStatusDetail,
                 systemImage: speakerStatusIcon,
                 tint: speakerStatusTint
             ) {
-                if appState.discovery.isSearching {
+                if appState.isReconnecting || appState.discovery.isSearching {
                     ProgressView()
                         .controlSize(.small)
                 }
             }
 
-            if !appState.isConnected && !appState.discovery.isSearching {
+            if appState.needsLocalNetworkAccess {
+                Button {
+                    appState.openLocalNetworkSettings()
+                } label: {
+                    Label("Open Local Network Settings", systemImage: "gearshape")
+                }
+                .controlSize(.small)
+            } else if !appState.isConnected && !discoveredSpeakers.isEmpty {
+                ForEach(Array(discoveredSpeakers.prefix(3))) { speaker in
+                    discoveredSpeakerButton(speaker)
+                }
+
+                if discoveredSpeakers.count > 3 {
+                    Button {
+                        settingsAction()
+                    } label: {
+                        Label("\(discoveredSpeakers.count - 3) more in Settings", systemImage: "ellipsis.circle")
+                    }
+                    .buttonStyle(.plain)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                }
+            } else if !appState.hasStartedConnection {
+                Button {
+                    appState.startConnection()
+                } label: {
+                    Label("Find Speakers", systemImage: "magnifyingglass")
+                }
+                .controlSize(.small)
+                .buttonStyle(.borderedProminent)
+            } else if !appState.isConnected && !appState.discovery.isSearching {
+                HStack(spacing: 8) {
+                    Button {
+                        appState.startConnection()
+                    } label: {
+                        Label("Rescan", systemImage: "arrow.clockwise")
+                    }
+                    .controlSize(.small)
+
+                    Button {
+                        settingsAction()
+                    } label: {
+                        Label("Connection Settings", systemImage: "gearshape")
+                    }
+                    .controlSize(.small)
+                }
+            } else if !appState.isConnected {
                 Button {
                     settingsAction()
                 } label: {
-                    Label("Choose Speaker", systemImage: "gearshape")
+                    Label("Connection Settings", systemImage: "gearshape")
                 }
                 .controlSize(.small)
             }
         }
     }
 
-    private var keyboardChoiceCard: some View {
-        OnboardingCard(title: "Keyboard Volume Keys", systemImage: "keyboard") {
-            Picker("Keyboard volume target", selection: $appState.volumeKeyRoutingMode) {
-                Text("Mac").tag(VolumeKeyRoutingMode.mac)
-                Text("Auto").tag(VolumeKeyRoutingMode.auto)
-                Text("KEF").tag(VolumeKeyRoutingMode.speaker)
+    private func discoveredSpeakerButton(_ speaker: DiscoveredSpeaker) -> some View {
+        HStack(alignment: .center, spacing: 9) {
+            Image(systemName: "hifispeaker.fill")
+                .foregroundStyle(.blue)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(speaker.name)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+
+                Text(speaker.host)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-            .labelsHidden()
-            .pickerStyle(.segmented)
-            .frame(maxWidth: .infinity)
 
-            keyboardTargetSummary
+            Spacer(minLength: 8)
 
-            if appState.volumeKeyRoutingMode.requiresMediaKeyAccess {
-                Rectangle()
-                    .fill(Color(nsColor: .separatorColor).opacity(0.18))
-                    .frame(height: 1)
-
-                inputMonitoringStatus
-
-                if appState.mediaKeyAccessState != .working {
-                    permissionActions
+            Button {
+                appState.connect(to: speaker.host)
+            } label: {
+                if isConnecting(to: speaker) {
+                    Label("Connecting…", systemImage: "ellipsis")
+                } else {
+                    Label("Connect", systemImage: "link")
                 }
             }
+            .controlSize(.small)
+            .disabled(appState.isReconnecting || appState.isBusy)
         }
-    }
-
-    private var inputMonitoringStatus: some View {
-        StatusRow(
-            title: inputMonitoringTitle,
-            detail: inputMonitoringDetail,
-            systemImage: mediaKeyStepIcon,
-            tint: mediaKeyStepColor
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .panelSolidCardBackground(
+            RoundedRectangle(cornerRadius: 8, style: .continuous),
+            fillOpacity: 0.20,
+            strokeOpacity: 0.14
         )
-    }
-
-    private var permissionActions: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
-                    requestPermissionButton
-                    openInputMonitoringButton
-                    secondaryMediaKeySettingsButton
-                    refreshPermissionButton
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        requestPermissionButton
-                        refreshPermissionButton
-                    }
-                    HStack(spacing: 8) {
-                        openInputMonitoringButton
-                        secondaryMediaKeySettingsButton
-                    }
-                }
-            }
-
-            if appState.needsRestartForMediaKeyAccess {
-                Button {
-                    appState.restartApp()
-                } label: {
-                    Label("Restart KEF Companion", systemImage: "restart.circle")
-                }
-                .controlSize(.small)
-            }
-        }
     }
 
     private var footer: some View {
@@ -160,246 +185,85 @@ struct OnboardingView: View {
 
             Spacer()
 
-            Button(primaryActionTitle) {
+            Button("Not Now") {
                 doneAction()
             }
             .controlSize(.small)
-            .buttonStyle(.borderedProminent)
         }
-    }
-
-    private var requestPermissionButton: some View {
-        Button {
-            appState.requestMediaKeyAccess()
-        } label: {
-            Label(mediaKeyRequestTitle, systemImage: "hand.raised")
-        }
-        .controlSize(.small)
-    }
-
-    private var openInputMonitoringButton: some View {
-        Button {
-            appState.openRequiredMediaKeySettings()
-        } label: {
-            Label(mediaKeySettingsTitle, systemImage: mediaKeySettingsIcon)
-        }
-        .controlSize(.small)
-    }
-
-    @ViewBuilder
-    private var secondaryMediaKeySettingsButton: some View {
-        if appState.mediaKeyAccessState == .failedToActivate {
-            Button {
-                appState.openAccessibilitySettings()
-            } label: {
-                Label("Accessibility", systemImage: "accessibility")
-            }
-            .controlSize(.small)
-        }
-    }
-
-    private var refreshPermissionButton: some View {
-        Button {
-            appState.refreshMediaKeyAccessStatus()
-        } label: {
-            Label("Refresh", systemImage: "arrow.clockwise")
-        }
-        .controlSize(.small)
-    }
-
-    private var keyboardTargetSummary: some View {
-        StatusRow(
-            title: keyboardTargetTitle,
-            detail: keyboardTargetDetail,
-            systemImage: keyboardTargetIcon,
-            tint: keyboardTargetTint
-        )
     }
 
     private var speakerStatusTitle: String {
         if appState.isConnected {
             return appState.speakerName.isEmpty ? "Connected" : appState.speakerName
         }
-
-        if appState.discovery.isSearching {
-            return "Searching"
+        if appState.needsLocalNetworkAccess {
+            return "Local Network access is off"
         }
-
-        return "No speaker connected"
+        if appState.isReconnecting {
+            return "Connecting to speaker"
+        }
+        if appState.connectionError != nil {
+            return "Couldn't connect"
+        }
+        if !discoveredSpeakers.isEmpty {
+            return discoveredSpeakers.count == 1 ? "Speaker found" : "\(discoveredSpeakers.count) speakers found"
+        }
+        if appState.discovery.isSearching {
+            return "Searching for speakers"
+        }
+        if !appState.hasStartedConnection {
+            return "Find your KEF speaker"
+        }
+        return "No speakers found"
     }
 
     private var speakerStatusDetail: String? {
         if appState.isConnected, let host = appState.currentHost {
             return host
         }
-
+        if appState.needsLocalNetworkAccess {
+            return "macOS reports that this app is blocked, even though System Settings may show it as enabled."
+        }
+        if appState.isReconnecting, let host = appState.currentHost {
+            return host
+        }
+        if let connectionError = appState.connectionError {
+            return connectionError
+        }
+        if !discoveredSpeakers.isEmpty {
+            return "Select a speaker below to connect."
+        }
         if appState.discovery.isSearching {
             return "Looking on your local network."
         }
-
-        return "Choose a discovered speaker or enter a manual host."
+        if !appState.hasStartedConnection {
+            return "Finding and controlling a speaker requires Local Network access. macOS will ask after you continue."
+        }
+        return "Keep your speaker on this network, rescan, or add a manual host in Settings."
     }
 
     private var speakerStatusIcon: String {
-        if appState.isConnected {
-            return "checkmark.circle.fill"
-        }
-
-        if appState.discovery.isSearching {
-            return "dot.radiowaves.left.and.right"
-        }
-
-        return "wifi.exclamationmark"
+        if appState.isConnected { return "checkmark.circle.fill" }
+        if appState.needsLocalNetworkAccess { return "hand.raised.circle" }
+        if appState.isReconnecting { return "hifispeaker.fill" }
+        if !discoveredSpeakers.isEmpty { return "hifispeaker.fill" }
+        if appState.discovery.isSearching { return "dot.radiowaves.left.and.right" }
+        return "hifispeaker"
     }
 
     private var speakerStatusTint: Color {
-        if appState.isConnected {
-            return .green
-        }
-
-        return appState.discovery.isSearching ? .secondary : .orange
+        if appState.isConnected { return .green }
+        if appState.needsLocalNetworkAccess || appState.connectionError != nil { return .orange }
+        if !discoveredSpeakers.isEmpty { return .blue }
+        return appState.discovery.isSearching ? .secondary : .blue
     }
 
-    private var keyboardTargetTitle: String {
-        switch appState.volumeKeyRoutingMode {
-        case .mac:
-            "Controls Mac volume"
-        case .auto:
-            "Auto-switches volume keys"
-        case .speaker:
-            "Controls KEF speaker"
-        }
+    private func isConnecting(to speaker: DiscoveredSpeaker) -> Bool {
+        appState.isReconnecting && appState.currentHost == speaker.host
     }
 
-    private var keyboardTargetDetail: String? {
-        switch appState.volumeKeyRoutingMode {
-        case .mac:
-            "Keyboard volume keys stay with macOS."
-        case .auto:
-            "Keys adjust KEF while music plays and macOS when paused."
-        case .speaker:
-            "Keyboard volume keys adjust the connected speaker."
-        }
-    }
-
-    private var keyboardTargetIcon: String {
-        switch appState.volumeKeyRoutingMode {
-        case .mac:
-            "macwindow"
-        case .auto:
-            "arrow.left.arrow.right.circle.fill"
-        case .speaker:
-            "hifispeaker.fill"
-        }
-    }
-
-    private var keyboardTargetTint: Color {
-        switch appState.volumeKeyRoutingMode {
-        case .mac:
-            .secondary
-        case .auto:
-            .blue
-        case .speaker:
-            .green
-        }
-    }
-
-    private var primaryActionTitle: String {
-        if appState.isConnected {
-            return "Done"
-        }
-
-        return "Skip for Now"
-    }
-
-    private var inputMonitoringTitle: String {
-        switch appState.mediaKeyAccessState {
-        case .working:
-            return appState.volumeKeyRoutingMode == .auto ? "Volume keys ready" : "KEF volume keys ready"
-        case .unknown:
-            return "Checking permissions"
-        case .inputMonitoringNeeded:
-            return "Allow Input Monitoring"
-        case .inputMonitoringDenied:
-            return "Input Monitoring is off"
-        case .accessibilityNeeded:
-            return "Allow Accessibility"
-        case .accessibilityDenied:
-            return "Accessibility is off"
-        case .failedToActivate:
-            return "Volume-key listener failed"
-        }
-    }
-
-    private var inputMonitoringDetail: String? {
-        switch appState.mediaKeyAccessState {
-        case .working:
-            return appState.volumeKeyRoutingMode == .auto
-                ? "When your speaker is playing, volume keys control KEF. When paused, they control your Mac."
-                : "Volume keys control your KEF speaker."
-        case .unknown:
-            return nil
-        case .inputMonitoringNeeded:
-            return "macOS grants broad key-listening access; \(appDisplayName) uses it only for volume media keys."
-        case .inputMonitoringDenied:
-            return "Enable \(appDisplayName) in Input Monitoring, then restart."
-        case .accessibilityNeeded:
-            return "\(appDisplayName) uses Accessibility only to intercept volume keys before macOS changes Mac volume."
-        case .accessibilityDenied:
-            return "Enable \(appDisplayName) in Accessibility, then restart."
-        case .failedToActivate:
-            return "Restart \(appDisplayName) or re-add both permissions."
-        }
-    }
-
-    private var mediaKeyStepIcon: String {
-        switch appState.mediaKeyAccessState {
-        case .working:
-            "checkmark.circle.fill"
-        case .accessibilityNeeded, .accessibilityDenied:
-            "accessibility"
-        default:
-            "hand.raised.circle"
-        }
-    }
-
-    private var mediaKeyStepColor: Color {
-        appState.mediaKeyAccessState == .working ? .green : .orange
-    }
-
-    private var mediaKeyRequestTitle: String {
-        switch appState.mediaKeyAccessState {
-        case .inputMonitoringNeeded:
-            "Request Permission"
-        case .inputMonitoringDenied:
-            "Retry Permission"
-        case .accessibilityNeeded:
-            "Request Permission"
-        case .accessibilityDenied:
-            "Retry Permission"
-        case .failedToActivate:
-            "Retry Listener"
-        case .unknown, .working:
-            "Request Permission"
-        }
-    }
-
-    private var mediaKeySettingsTitle: String {
-        switch appState.mediaKeyAccessState {
-        case .accessibilityNeeded, .accessibilityDenied:
-            "Open Accessibility"
-        default:
-            "Open Input Monitoring"
-        }
-    }
-
-    private var mediaKeySettingsIcon: String {
-        switch appState.mediaKeyAccessState {
-        case .accessibilityNeeded, .accessibilityDenied:
-            "accessibility"
-        default:
-            "gearshape"
-        }
+    private var discoveredSpeakers: [DiscoveredSpeaker] {
+        appState.discovery.speakers
     }
 }
 

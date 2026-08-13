@@ -21,4 +21,11 @@ final class ManualHostValidatorTests: XCTestCase {
         XCTAssertNil(ManualHostValidator.normalizedHost("-bad.local"))
         XCTAssertNil(ManualHostValidator.normalizedHost("bad-.local"))
     }
+
+    func testDiscoveryHostsRejectLoopbackAndPublicDestinations() {
+        XCTAssertEqual(ManualHostValidator.normalizedDiscoveryHost("192.168.1.40"), "192.168.1.40")
+        XCTAssertEqual(ManualHostValidator.normalizedDiscoveryHost("Speaker-Kitchen.local"), "speaker-kitchen.local")
+        XCTAssertNil(ManualHostValidator.normalizedDiscoveryHost("127.0.0.1"))
+        XCTAssertNil(ManualHostValidator.normalizedDiscoveryHost("8.8.8.8"))
+    }
 }

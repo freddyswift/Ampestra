@@ -4,8 +4,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SWIFT="$ROOT_DIR/script/swift.sh"
 BINARY_NAME="KEFCompanion"
+DEV_PAYLOAD_NAME="libKEFCompanionDevPayload.dylib"
 BASE_BUNDLE_NAME="KEF Companion"
 BASE_BUNDLE_IDENTIFIER="com.freddyswift.KEFCompanion"
+# macOS Local Network privacy includes the main executable UUID in its app
+# identity. Keep the Dev launcher's UUID fixed across payload rebuilds. This is
+# the UUID macOS has cached for the enabled KEF Companion Dev Local Network row.
+DEV_LAUNCHER_UUID="5D17FC99-0065-3096-AB78-BD6CEF30EB80"
 CONFIGURATION="${CONFIGURATION:-debug}"
 BUILD_VARIANT="${KEFCOMPANION_BUILD_VARIANT:-dev}"
 SIGNING_IDENTITY="${CODESIGN_IDENTITY:-}"
@@ -62,11 +67,13 @@ done
 
 case "$BUILD_VARIANT" in
   dev|development|local)
+    IS_DEV_BUILD=true
     BUNDLE_NAME="$BASE_BUNDLE_NAME Dev"
     BUNDLE_IDENTIFIER="$BASE_BUNDLE_IDENTIFIER.dev"
     EXECUTABLE_NAME="KEFCompanionDev"
     ;;
   prod|production|release)
+    IS_DEV_BUILD=false
     BUNDLE_NAME="$BASE_BUNDLE_NAME"
     BUNDLE_IDENTIFIER="$BASE_BUNDLE_IDENTIFIER"
     EXECUTABLE_NAME="$BINARY_NAME"
@@ -77,17 +84,26 @@ case "$BUILD_VARIANT" in
     ;;
 esac
 
-default_signing_identity() {
+default_development_signing_identity() {
+  /usr/bin/security find-identity -v -p codesigning 2>/dev/null |
+    awk -F '"' '/Apple Development:/ { print $2; exit }'
+}
+
+default_distribution_signing_identity() {
   /usr/bin/security find-identity -v -p codesigning 2>/dev/null |
     awk -F '"' '/Developer ID Application:/ { print $2; exit }'
 }
 
 if [[ -z "$SIGNING_IDENTITY" ]]; then
-  SIGNING_IDENTITY="$(default_signing_identity)"
-fi
+  if [[ "$IS_DEV_BUILD" == true ]]; then
+    SIGNING_IDENTITY="$(default_development_signing_identity)"
+  else
+    SIGNING_IDENTITY="$(default_distribution_signing_identity)"
+  fi
 
-if [[ -z "$SIGNING_IDENTITY" ]]; then
-  SIGNING_IDENTITY="-"
+  if [[ -z "$SIGNING_IDENTITY" ]]; then
+    SIGNING_IDENTITY="-"
+  fi
 fi
 
 APP_DIR="$ROOT_DIR/dist/$BUNDLE_NAME.app"
@@ -105,8 +121,14 @@ if [[ "$open_after_build" != true && "$show_logs" == true ]]; then
   exit 2
 fi
 
-if [[ "$open_after_build" == true ]] && pgrep -x "$EXECUTABLE_NAME" >/dev/null; then
-  killall "$EXECUTABLE_NAME" >/dev/null 2>&1 || true
+if [[ "$open_after_build" == true ]]; then
+  process_names=("$EXECUTABLE_NAME")
+
+  for process_name in "${process_names[@]}"; do
+    if pgrep -x "$process_name" >/dev/null; then
+      killall "$process_name" >/dev/null 2>&1 || true
+    fi
+  done
   sleep 0.2
 fi
 
@@ -139,23 +161,80 @@ copy_bundle_resources() {
   ditto "$ROOT_DIR/THIRD_PARTY_NOTICES.md" "$resources_dir/ThirdPartyNotices.txt"
 }
 
-codesign_app() {
-  local codesign_args=(--force --sign "$SIGNING_IDENTITY" --options runtime --deep)
+build_stable_dev_launcher() {
+  local launcher_source="$ROOT_DIR/Support/KEFCompanionDevLauncher.c"
+  local launcher_dir="$ROOT_DIR/.build/kef-companion-dev-launcher"
+  local launcher="$launcher_dir/KEFCompanionDev"
+  local actual_uuid
 
-  if [[ "$SIGNING_IDENTITY" != "-" ]]; then
-    codesign_args+=(--timestamp)
+  mkdir -p "$launcher_dir"
+  if [[ ! -x "$launcher" || "$launcher_source" -nt "$launcher" ]]; then
+    xcrun clang \
+      -Os \
+      -Wall \
+      -Wextra \
+      -Werror \
+      -mmacosx-version-min=14.0 \
+      "$launcher_source" \
+      -o "$launcher"
   fi
 
-  codesign "${codesign_args[@]}" "$APP_DIR" >/dev/null
+  # Idempotent, and ensures a deliberately changed configured UUID takes
+  # effect without requiring contributors to delete the cached launcher.
+  "$SWIFT" "$ROOT_DIR/script/set_macho_uuid.swift" "$launcher" "$DEV_LAUNCHER_UUID"
+
+  actual_uuid="$(/usr/bin/dwarfdump --uuid "$launcher" | awk 'NR == 1 { print $2 }')"
+  if [[ "$actual_uuid" != "$DEV_LAUNCHER_UUID" ]]; then
+    echo "Dev launcher UUID changed: expected $DEV_LAUNCHER_UUID, got $actual_uuid" >&2
+    exit 2
+  fi
+
+  echo "$launcher"
 }
 
-swift_build
+codesign_app() {
+  if [[ "$SIGNING_IDENTITY" == "-" ]]; then
+    # Re-sign all nested Sparkle code with the same ad-hoc identity, then sign
+    # the host with local-only library validation disabled. Without this narrow
+    # entitlement, dyld rejects an ad-hoc host loading Sparkle's nested code.
+    codesign --force --sign - --options runtime --deep "$APP_DIR" >/dev/null
+    codesign \
+      --force \
+      --sign - \
+      --options runtime \
+      --entitlements "$ROOT_DIR/Resources/DevAdHoc.entitlements" \
+      "$APP_DIR" >/dev/null
+  else
+    codesign \
+      --force \
+      --sign "$SIGNING_IDENTITY" \
+      --options runtime \
+      --deep \
+      --timestamp \
+      "$APP_DIR" >/dev/null
+  fi
+
+  codesign --verify --deep --strict "$APP_DIR"
+}
+
+if [[ "$IS_DEV_BUILD" == true ]]; then
+  swift_build --product KEFCompanionDevPayload
+else
+  swift_build --product KEFCompanion
+fi
 BIN_DIR="$(swift_build --show-bin-path)"
 
 rm -rf "$APP_DIR"
 mkdir -p "$CONTENTS_DIR/MacOS"
 cp "$ROOT_DIR/Sources/KEFCompanion/Info.plist" "$CONTENTS_DIR/Info.plist"
-cp "$BIN_DIR/$BINARY_NAME" "$CONTENTS_DIR/MacOS/$EXECUTABLE_NAME"
+if [[ "$IS_DEV_BUILD" == true ]]; then
+  DEV_LAUNCHER="$(build_stable_dev_launcher)"
+  cp "$DEV_LAUNCHER" "$CONTENTS_DIR/MacOS/$EXECUTABLE_NAME"
+  mkdir -p "$CONTENTS_DIR/Frameworks"
+  cp "$BIN_DIR/$DEV_PAYLOAD_NAME" "$CONTENTS_DIR/Frameworks/$DEV_PAYLOAD_NAME"
+else
+  cp "$BIN_DIR/$BINARY_NAME" "$CONTENTS_DIR/MacOS/$EXECUTABLE_NAME"
+fi
 copy_embedded_frameworks "$BIN_DIR"
 copy_bundle_resources
 
@@ -164,7 +243,7 @@ copy_bundle_resources
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_IDENTIFIER" "$CONTENTS_DIR/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable $EXECUTABLE_NAME" "$CONTENTS_DIR/Info.plist"
 if [[ "$BUNDLE_NAME" != "$BASE_BUNDLE_NAME" ]]; then
-  /usr/libexec/PlistBuddy -c "Set :NSLocalNetworkUsageDescription $BUNDLE_NAME scans the local network to find and control compatible KEF speakers." "$CONTENTS_DIR/Info.plist"
+  /usr/libexec/PlistBuddy -c "Set :NSLocalNetworkUsageDescription $BUNDLE_NAME uses your local network to find and control compatible KEF speakers." "$CONTENTS_DIR/Info.plist"
 fi
 
 codesign_app
