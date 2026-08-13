@@ -1,23 +1,23 @@
-# KEF Companion
+# Ampestra
 
 Unofficial macOS menu bar companion for KEF wireless speakers.
 
 ## Download
 
-Download the latest `KEFCompanion-*.dmg` from
-[GitHub Releases](https://github.com/freddyswift/KEFCompanion/releases).
+Download the latest `Ampestra-*.dmg` from
+[GitHub Releases](https://github.com/freddyswift/Ampestra/releases).
 
 Prebuilt releases currently require macOS 14 or later on Apple Silicon.
 
-Open the DMG, then drag `KEF Companion.app` into `Applications`.
+Open the DMG, then drag `Ampestra.app` into `Applications`.
 
 ## Compatibility
 
-KEF Companion supports macOS 14 or later. Current development and release
+Ampestra supports macOS 14 or later. Current development and release
 testing is primarily done on macOS 26 and later; if you use macOS 14 or 15,
 please report any launch, permissions, networking, or UI issues.
 
-KEF Companion works with KEF speakers that expose the local HTTP control API:
+Ampestra works with KEF speakers that expose the local HTTP control API:
 
 - KEF LS50 Wireless II
 - KEF LSX II / LSX II LT
@@ -36,12 +36,12 @@ The original LS50 Wireless and LSX gen 1 are not supported.
 
 ## Permissions
 
-KEF Companion asks for Local Network access after you choose **Find Speakers**,
+Ampestra asks for Local Network access after you choose **Find Speakers**,
 because it cannot discover or control a speaker without that access. It does not
 trigger the prompt merely by launching in the background.
 
 Keyboard volume-key control is optional. If you choose Auto or KEF mode, macOS
-also asks for broad Input Monitoring and Accessibility privileges. KEF Companion
+also asks for broad Input Monitoring and Accessibility privileges. Ampestra
 uses those permissions only to handle volume media-key events; it does not log
 or store keystrokes.
 
@@ -64,12 +64,12 @@ xcode-select --install
 Install from source:
 
 ```sh
-git clone https://github.com/freddyswift/KEFCompanion.git
-cd KEFCompanion
+git clone https://github.com/freddyswift/Ampestra.git
+cd Ampestra
 make install
 ```
 
-That builds `KEF Companion.app`, asks before replacing any existing copy in
+That builds `Ampestra.app`, asks before replacing any existing copy in
 `/Applications`, installs it, and opens the app.
 
 Update an installed source build:
@@ -87,7 +87,7 @@ Contributor commands:
 - `make run` builds and launches the development app.
 - `make dev-reset` removes the development app and resets its optional keyboard permissions.
 - `make dev-fresh` runs that targeted reset, then rebuilds and launches the development app.
-- `make app` stages `dist/KEF Companion.app`.
+- `make app` stages `dist/Ampestra.app`.
 - `make clean` removes build artifacts.
 
 macOS does not expose a supported way to reset Local Network access to its
@@ -110,7 +110,7 @@ Maintainer release instructions live in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Privacy
 
-KEF Companion does not include analytics, telemetry, or bundled credentials.
+Ampestra does not include analytics, telemetry, or bundled credentials.
 
 The app uses Bonjour to discover compatible speakers on the local network,
 connects to speakers over their local HTTP API, and may read now-playing

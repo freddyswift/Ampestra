@@ -9,7 +9,7 @@ set -euo pipefail
 # that carries the framework in the location SwiftPM expects. An explicit
 # DEVELOPER_DIR from the caller always wins.
 #
-# If KEFCOMPANION_SWIFT_BUILD_SYSTEM is set, pass it through to SwiftPM build
+# If AMPESTRA_SWIFT_BUILD_SYSTEM is set, pass it through to SwiftPM build
 # commands. This is intentionally opt-in: deprecated SwiftPM build systems are
 # useful for diagnosing toolchain bugs, but the project default should remain
 # the supported SwiftPM backend.
@@ -31,7 +31,7 @@ if [[ -z "${DEVELOPER_DIR:-}" ]]; then
 fi
 
 if [[ "${1:-}" == "build" || "${1:-}" == "test" || "${1:-}" == "run" ]]; then
-  build_system="${KEFCOMPANION_SWIFT_BUILD_SYSTEM:-}"
+  build_system="${AMPESTRA_SWIFT_BUILD_SYSTEM:-}"
   has_build_system=false
 
   for arg in "$@"; do

@@ -2,36 +2,36 @@
 import PackageDescription
 
 let package = Package(
-    name: "KEFCompanion",
+    name: "Ampestra",
     platforms: [.macOS(.v14)],
     products: [
-        .executable(name: "KEFCompanion", targets: ["KEFCompanionExecutable"]),
-        .library(name: "KEFCompanionDevPayload", type: .dynamic, targets: ["KEFCompanion"]),
+        .executable(name: "Ampestra", targets: ["AmpestraExecutable"]),
+        .library(name: "AmpestraDevPayload", type: .dynamic, targets: ["Ampestra"]),
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.2")
     ],
     targets: [
         .target(
-            name: "KEFCompanion",
+            name: "Ampestra",
             dependencies: [
                 .product(name: "Sparkle", package: "Sparkle")
             ],
-            path: "Sources/KEFCompanion",
+            path: "Sources/Ampestra",
             exclude: ["Info.plist"],
             linkerSettings: [
                 .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])
             ]
         ),
         .executableTarget(
-            name: "KEFCompanionExecutable",
-            dependencies: ["KEFCompanion"],
-            path: "Sources/KEFCompanionExecutable"
+            name: "AmpestraExecutable",
+            dependencies: ["Ampestra"],
+            path: "Sources/AmpestraExecutable"
         ),
         .testTarget(
-            name: "KEFCompanionTests",
-            dependencies: ["KEFCompanion"],
-            path: "Tests/KEFCompanionTests",
+            name: "AmpestraTests",
+            dependencies: ["Ampestra"],
+            path: "Tests/AmpestraTests",
             linkerSettings: [
                 .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@loader_path/../../.."])
             ]

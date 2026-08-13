@@ -25,7 +25,7 @@ check:
 	$(SWIFT) build -Xswiftc -warnings-as-errors
 	$(SWIFT) test
 	for f in script/*.sh; do bash -n "$$f"; done
-	plutil -lint Sources/KEFCompanion/Info.plist
+	plutil -lint Sources/Ampestra/Info.plist
 
 run:
 	./script/build_and_run.sh
@@ -62,8 +62,8 @@ release-test:
 
 release-config:
 	@printf "Sparkle public EdDSA key: "; read -r sparkle_key; \
-	printf "Notary profile [KEFCompanion, '-' skips]: "; read -r notary_profile; \
-	if [ -z "$$notary_profile" ]; then notary_profile="KEFCompanion"; fi; \
+	printf "Notary profile [Ampestra, '-' skips]: "; read -r notary_profile; \
+	if [ -z "$$notary_profile" ]; then notary_profile="Ampestra"; fi; \
 	if [ "$$notary_profile" = "-" ]; then notary_profile=""; fi; \
 	{ \
 		echo "SPARKLE_PUBLIC_ED_KEY=$$sparkle_key"; \
@@ -75,11 +75,11 @@ sparkle-key: release-build
 	.build/artifacts/sparkle/Sparkle/bin/generate_keys
 
 notary-profile:
-	xcrun notarytool store-credentials KEFCompanion
+	xcrun notarytool store-credentials Ampestra
 
 release-package:
 	$(MAKE) release VERSION=$(VERSION)
 
 clean:
 	$(SWIFT) package clean
-	rm -rf "KEF Companion.app" dist
+	rm -rf "Ampestra.app" dist

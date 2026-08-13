@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAME="KEF Companion"
+APP_NAME="Ampestra"
 UPDATE_REF="${1:-main}"
 
 if [[ "$UPDATE_REF" == "" ]]; then

@@ -3,16 +3,16 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SWIFT="$ROOT_DIR/script/swift.sh"
-BINARY_NAME="KEFCompanion"
-DEV_PAYLOAD_NAME="libKEFCompanionDevPayload.dylib"
-BASE_BUNDLE_NAME="KEF Companion"
-BASE_BUNDLE_IDENTIFIER="com.freddyswift.KEFCompanion"
+BINARY_NAME="Ampestra"
+DEV_PAYLOAD_NAME="libAmpestraDevPayload.dylib"
+BASE_BUNDLE_NAME="Ampestra"
+BASE_BUNDLE_IDENTIFIER="com.freddyswift.Ampestra"
 # macOS Local Network privacy includes the main executable UUID in its app
 # identity. Keep the Dev launcher's UUID fixed across payload rebuilds. This is
-# the UUID macOS has cached for the enabled KEF Companion Dev Local Network row.
+# the UUID macOS has cached for the enabled Ampestra Dev Local Network row.
 DEV_LAUNCHER_UUID="5D17FC99-0065-3096-AB78-BD6CEF30EB80"
 CONFIGURATION="${CONFIGURATION:-debug}"
-BUILD_VARIANT="${KEFCOMPANION_BUILD_VARIANT:-dev}"
+BUILD_VARIANT="${AMPESTRA_BUILD_VARIANT:-dev}"
 SIGNING_IDENTITY="${CODESIGN_IDENTITY:-}"
 
 show_logs=false
@@ -46,11 +46,11 @@ while [[ $# -gt 0 ]]; do
 Usage: $(basename "$0") [--dev|--prod] [--verify] [--no-open] [--logs|--telemetry]
 
 Builds and launches a local app bundle. Dev mode is the default and stages
-"KEF Companion Dev.app" so local runs are visually distinct from production.
+"Ampestra Dev.app" so local runs are visually distinct from production.
 
 Options:
-  --dev        Stage the local bundle as KEF Companion Dev.app (default).
-  --prod       Stage the local bundle as KEF Companion.app.
+  --dev        Stage the local bundle as Ampestra Dev.app (default).
+  --prod       Stage the local bundle as Ampestra.app.
   --verify     Confirm the app process launches.
   --no-open    Build and stage the app bundle without launching it.
   --logs       Stream unified logs after launch.
@@ -70,7 +70,7 @@ case "$BUILD_VARIANT" in
     IS_DEV_BUILD=true
     BUNDLE_NAME="$BASE_BUNDLE_NAME Dev"
     BUNDLE_IDENTIFIER="$BASE_BUNDLE_IDENTIFIER.dev"
-    EXECUTABLE_NAME="KEFCompanionDev"
+    EXECUTABLE_NAME="AmpestraDev"
     ;;
   prod|production|release)
     IS_DEV_BUILD=false
@@ -79,7 +79,7 @@ case "$BUILD_VARIANT" in
     EXECUTABLE_NAME="$BINARY_NAME"
     ;;
   *)
-    echo "Unknown KEFCOMPANION_BUILD_VARIANT: $BUILD_VARIANT" >&2
+    echo "Unknown AMPESTRA_BUILD_VARIANT: $BUILD_VARIANT" >&2
     exit 2
     ;;
 esac
@@ -162,9 +162,9 @@ copy_bundle_resources() {
 }
 
 build_stable_dev_launcher() {
-  local launcher_source="$ROOT_DIR/Support/KEFCompanionDevLauncher.c"
-  local launcher_dir="$ROOT_DIR/.build/kef-companion-dev-launcher"
-  local launcher="$launcher_dir/KEFCompanionDev"
+  local launcher_source="$ROOT_DIR/Support/AmpestraDevLauncher.c"
+  local launcher_dir="$ROOT_DIR/.build/ampestra-dev-launcher"
+  local launcher="$launcher_dir/AmpestraDev"
   local actual_uuid
 
   mkdir -p "$launcher_dir"
@@ -218,15 +218,15 @@ codesign_app() {
 }
 
 if [[ "$IS_DEV_BUILD" == true ]]; then
-  swift_build --product KEFCompanionDevPayload
+  swift_build --product AmpestraDevPayload
 else
-  swift_build --product KEFCompanion
+  swift_build --product Ampestra
 fi
 BIN_DIR="$(swift_build --show-bin-path)"
 
 rm -rf "$APP_DIR"
 mkdir -p "$CONTENTS_DIR/MacOS"
-cp "$ROOT_DIR/Sources/KEFCompanion/Info.plist" "$CONTENTS_DIR/Info.plist"
+cp "$ROOT_DIR/Sources/Ampestra/Info.plist" "$CONTENTS_DIR/Info.plist"
 if [[ "$IS_DEV_BUILD" == true ]]; then
   DEV_LAUNCHER="$(build_stable_dev_launcher)"
   cp "$DEV_LAUNCHER" "$CONTENTS_DIR/MacOS/$EXECUTABLE_NAME"

@@ -1,6 +1,6 @@
-Third-party notices for KEF Companion.
+Third-party notices for Ampestra.
 
-KEF Companion includes Sparkle for app updates. Sparkle's upstream license and
+Ampestra includes Sparkle for app updates. Sparkle's upstream license and
 external dependency notices follow.
 
 ---

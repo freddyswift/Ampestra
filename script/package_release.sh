@@ -3,15 +3,15 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SWIFT="$ROOT_DIR/script/swift.sh"
-APP_NAME="KEFCompanion"
-APP_DISPLAY_NAME="KEF Companion"
+APP_NAME="Ampestra"
+APP_DISPLAY_NAME="Ampestra"
 APPCAST_ASSET_NAME="sparkle-appcast.xml"
 APP_DIR="$ROOT_DIR/dist/$APP_DISPLAY_NAME.app"
-INFO_PLIST="$ROOT_DIR/Sources/KEFCompanion/Info.plist"
-DEFAULT_FEED_URL="https://github.com/freddyswift/KEFCompanion/releases/latest/download/$APPCAST_ASSET_NAME"
+INFO_PLIST="$ROOT_DIR/Sources/Ampestra/Info.plist"
+DEFAULT_FEED_URL="https://github.com/freddyswift/Ampestra/releases/latest/download/$APPCAST_ASSET_NAME"
 
-version="${KEFCOMPANION_VERSION:-}"
-build_number="${KEFCOMPANION_BUILD:-}"
+version="${AMPESTRA_VERSION:-}"
+build_number="${AMPESTRA_BUILD:-}"
 release_tag="${RELEASE_TAG:-}"
 feed_url="${SPARKLE_FEED_URL:-$DEFAULT_FEED_URL}"
 public_ed_key="${SPARKLE_PUBLIC_ED_KEY:-}"
@@ -119,6 +119,11 @@ plist_value() {
   /usr/libexec/PlistBuddy -c "Print :$1" "$INFO_PLIST"
 }
 
+default_signing_identity() {
+  /usr/bin/security find-identity -v -p codesigning 2>/dev/null |
+    awk -F '"' '/Developer ID Application:/ { print $2; exit }'
+}
+
 generate_sparkle_appcast() {
   local appcast_tool="$ROOT_DIR/.build/artifacts/sparkle/Sparkle/bin/generate_appcast"
 
@@ -127,7 +132,7 @@ generate_sparkle_appcast() {
   fi
 
   appcast_input_dir="$(mktemp -d "$ROOT_DIR/dist/appcast-input.XXXXXX")"
-  find "$archives_dir" -maxdepth 1 -type f -name "$APP_NAME-*.zip" -exec cp {} "$appcast_input_dir/" \;
+  cp "$archive_path" "$appcast_input_dir/"
 
   if ! compgen -G "$appcast_input_dir/$APP_NAME-*.zip" >/dev/null; then
     echo "No Sparkle zip archives found in $archives_dir." >&2
@@ -136,6 +141,8 @@ generate_sparkle_appcast() {
 
   "$appcast_tool" \
     --download-url-prefix "$download_url_prefix" \
+    --maximum-versions 1 \
+    --maximum-deltas 0 \
     -o "$appcast_input_dir/$APPCAST_ASSET_NAME" \
     "$appcast_input_dir"
 
@@ -165,6 +172,22 @@ create_release_dmg() {
     -ov \
     "$output_path" >/dev/null
 
+  local signing_identity="${CODESIGN_IDENTITY:-$(default_signing_identity)}"
+  if [[ -n "$signing_identity" && "$signing_identity" != "-" ]]; then
+    codesign \
+      --force \
+      --sign "$signing_identity" \
+      --timestamp \
+      --identifier "com.freddyswift.Ampestra.disk-image" \
+      "$output_path"
+    codesign --verify --verbose=2 "$output_path"
+  elif [[ -n "$notary_profile" ]]; then
+    echo "A Developer ID Application identity is required to sign the release DMG." >&2
+    exit 2
+  else
+    echo "Skipping DMG signing because no Developer ID Application identity is available."
+  fi
+
   rm -rf "$dmg_staging_dir"
   dmg_staging_dir=""
 }
@@ -182,7 +205,7 @@ if [[ -z "$release_tag" ]]; then
 fi
 
 if [[ -z "$download_url_prefix" ]]; then
-  download_url_prefix="https://github.com/freddyswift/KEFCompanion/releases/download/$release_tag/"
+  download_url_prefix="https://github.com/freddyswift/Ampestra/releases/download/$release_tag/"
 fi
 
 if [[ -z "$public_ed_key" ]]; then
@@ -200,8 +223,8 @@ fi
 cd "$ROOT_DIR"
 
 echo "Building $APP_DISPLAY_NAME $version ($build_number) for $release_tag..."
-KEFCOMPANION_VERSION="$version" \
-KEFCOMPANION_BUILD="$build_number" \
+AMPESTRA_VERSION="$version" \
+AMPESTRA_BUILD="$build_number" \
 SPARKLE_FEED_URL="$feed_url" \
 SPARKLE_PUBLIC_ED_KEY="$public_ed_key" \
 ./script/install_app.sh --stage-only

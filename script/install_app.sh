@@ -3,16 +3,16 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SWIFT="$ROOT_DIR/script/swift.sh"
-APP_DISPLAY_NAME="KEF Companion"
-APP_EXECUTABLE="KEFCompanion"
+APP_DISPLAY_NAME="Ampestra"
+APP_EXECUTABLE="Ampestra"
 APP_DIR="$ROOT_DIR/dist/$APP_DISPLAY_NAME.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 INSTALL_DIR="/Applications"
 INSTALL_APP="$INSTALL_DIR/$APP_DISPLAY_NAME.app"
 SPARKLE_FEED_URL="${SPARKLE_FEED_URL:-}"
 SPARKLE_PUBLIC_ED_KEY="${SPARKLE_PUBLIC_ED_KEY:-}"
-KEFCOMPANION_VERSION="${KEFCOMPANION_VERSION:-}"
-KEFCOMPANION_BUILD="${KEFCOMPANION_BUILD:-}"
+AMPESTRA_VERSION="${AMPESTRA_VERSION:-}"
+AMPESTRA_BUILD="${AMPESTRA_BUILD:-}"
 
 prompt=true
 open_after_install=true
@@ -92,12 +92,12 @@ set_plist_bool() {
 }
 
 configure_release_metadata() {
-  if [[ -n "$KEFCOMPANION_VERSION" ]]; then
-    set_plist_string "CFBundleShortVersionString" "$KEFCOMPANION_VERSION"
+  if [[ -n "$AMPESTRA_VERSION" ]]; then
+    set_plist_string "CFBundleShortVersionString" "$AMPESTRA_VERSION"
   fi
 
-  if [[ -n "$KEFCOMPANION_BUILD" ]]; then
-    set_plist_string "CFBundleVersion" "$KEFCOMPANION_BUILD"
+  if [[ -n "$AMPESTRA_BUILD" ]]; then
+    set_plist_string "CFBundleVersion" "$AMPESTRA_BUILD"
   fi
 
   if [[ -z "$SPARKLE_FEED_URL" && -z "$SPARKLE_PUBLIC_ED_KEY" ]]; then
@@ -202,7 +202,7 @@ BIN_DIR="$("$SWIFT" build -c release --show-bin-path)"
 
 rm -rf "$APP_DIR"
 mkdir -p "$CONTENTS_DIR/MacOS"
-cp "$ROOT_DIR/Sources/KEFCompanion/Info.plist" "$CONTENTS_DIR/Info.plist"
+cp "$ROOT_DIR/Sources/Ampestra/Info.plist" "$CONTENTS_DIR/Info.plist"
 cp "$BIN_DIR/$APP_EXECUTABLE" "$CONTENTS_DIR/MacOS/$APP_EXECUTABLE"
 copy_embedded_frameworks "$BIN_DIR"
 copy_bundle_resources

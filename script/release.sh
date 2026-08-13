@@ -2,14 +2,14 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-INFO_PLIST="$ROOT_DIR/Sources/KEFCompanion/Info.plist"
-APP_NAME="KEFCompanion"
-APP_DISPLAY_NAME="KEF Companion"
+INFO_PLIST="$ROOT_DIR/Sources/Ampestra/Info.plist"
+APP_NAME="Ampestra"
+APP_DISPLAY_NAME="Ampestra"
 APPCAST_ASSET_NAME="sparkle-appcast.xml"
 RELEASES_DIR="${RELEASE_DIR:-$ROOT_DIR/dist/releases}"
 
-version="${KEFCOMPANION_VERSION:-}"
-build_number="${KEFCOMPANION_BUILD:-}"
+version="${AMPESTRA_VERSION:-}"
+build_number="${AMPESTRA_BUILD:-}"
 release_tag="${RELEASE_TAG:-}"
 public_ed_key="${SPARKLE_PUBLIC_ED_KEY:-}"
 notary_profile="${NOTARY_PROFILE:-}"
@@ -339,7 +339,7 @@ if gh release view "$release_tag" >/dev/null 2>&1; then
     exit 5
   fi
 
-  gh release delete-asset "$release_tag" appcast.xml --yes >/dev/null 2>&1 || true
+  gh release delete-asset "$release_tag" "$APPCAST_ASSET_NAME" --yes >/dev/null 2>&1 || true
   gh release upload "$release_tag" "$dmg_path" "$archive_path" "$appcast_path" --clobber
 else
   gh release create "$release_tag" \

@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEV_APP_DIR="$ROOT_DIR/dist/KEF Companion Dev.app"
-DEV_BUNDLE_ID="com.freddyswift.KEFCompanion.dev"
-PROD_BUNDLE_ID="com.freddyswift.KEFCompanion"
+DEV_APP_DIR="$ROOT_DIR/dist/Ampestra Dev.app"
+DEV_BUNDLE_ID="com.freddyswift.Ampestra.dev"
+PROD_BUNDLE_ID="com.freddyswift.Ampestra"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 include_production_permissions=false
@@ -13,7 +13,7 @@ usage() {
   cat <<EOF
 Usage: $(basename "$0") [--include-production-permissions]
 
-Removes the local KEF Companion Dev bundle, clears its saved preferences, and
+Removes the local Ampestra Dev bundle, clears its saved preferences, and
 resets every macOS privacy decision that tccutil supports for the Dev bundle.
 
 macOS does not provide a supported way to return Local Network access to its
@@ -22,7 +22,7 @@ Local Network is cleared automatically on releases where Apple supports it.
 
 Options:
   --include-production-permissions
-      Also reset the production KEF Companion privacy decisions. Use this only if
+      Also reset the production Ampestra privacy decisions. Use this only if
       an older dev build was granted permissions before it had a separate dev
       bundle identifier.
 EOF
@@ -104,7 +104,7 @@ reset_preferences_for_bundle() {
 
 register_dev_bundle() {
   if [[ ! -d "$DEV_APP_DIR" ]]; then
-    echo "Staging KEF Companion Dev so macOS can identify its bundle id..."
+    echo "Staging Ampestra Dev so macOS can identify its bundle id..."
     "$ROOT_DIR/script/build_and_run.sh" --no-open
   fi
 
@@ -115,7 +115,7 @@ register_dev_bundle() {
   "$LSREGISTER" -f "$DEV_APP_DIR" >/dev/null 2>&1 || true
 }
 
-kill_process_name "KEFCompanionDev"
+kill_process_name "AmpestraDev"
 kill_dev_app_path_processes
 reset_preferences_for_bundle "$DEV_BUNDLE_ID"
 register_dev_bundle
@@ -123,11 +123,11 @@ register_dev_bundle
 reset_privacy_for_bundle "$DEV_BUNDLE_ID"
 
 if [[ "$include_production_permissions" == true ]]; then
-  echo "Also resetting production KEF Companion permissions."
+  echo "Also resetting production Ampestra permissions."
   reset_privacy_for_bundle "$PROD_BUNDLE_ID"
 fi
 
 rm -rf "$DEV_APP_DIR"
 echo "Removed $DEV_APP_DIR"
 
-echo "KEF Companion Dev reset complete."
+echo "Ampestra Dev reset complete."

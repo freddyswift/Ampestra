@@ -1,9 +1,9 @@
-# Releasing KEF Companion
+# Releasing Ampestra
 
 This app uses locally built release artifacts hosted on GitHub Releases:
 
-- `KEFCompanion-vX.Y.Z.dmg` for people downloading the app
-- `KEFCompanion-vX.Y.Z.zip` for Sparkle app updates
+- `Ampestra-vX.Y.Z.dmg` for people downloading the app
+- `Ampestra-vX.Y.Z.zip` for Sparkle app updates
 - `sparkle-appcast.xml` for Sparkle update metadata
 
 GitHub Actions are not required.
@@ -14,7 +14,7 @@ Sparkle needs unauthenticated access to `sparkle-appcast.xml` and the update zip
 default feed URL points at this public GitHub repo:
 
 ```text
-https://github.com/freddyswift/KEFCompanion/releases/latest/download/sparkle-appcast.xml
+https://github.com/freddyswift/Ampestra/releases/latest/download/sparkle-appcast.xml
 ```
 
 If the repo is ever made private, host `sparkle-appcast.xml`, the update zip, and the
@@ -44,7 +44,7 @@ profile before publishing:
 make notary-profile
 ```
 
-The default profile name is `KEFCompanion`.
+The default profile name is `Ampestra`.
 
 ## Build A Release
 
@@ -57,12 +57,12 @@ make release VERSION=1.0.0
 The package command writes:
 
 ```text
-dist/releases/KEFCompanion-v1.0.0.dmg
-dist/releases/KEFCompanion-v1.0.0.zip
+dist/releases/Ampestra-v1.0.0.dmg
+dist/releases/Ampestra-v1.0.0.zip
 dist/releases/sparkle-appcast.xml
 ```
 
-The DMG opens with `KEF Companion.app` beside an `Applications` shortcut so
+The DMG opens with `Ampestra.app` beside an `Applications` shortcut so
 users can drag the app into `/Applications`. The zip remains the Sparkle update
 archive.
 
@@ -86,10 +86,10 @@ Or upload manually:
 
 ```sh
 gh release create v1.0.0 \
-  dist/releases/KEFCompanion-v1.0.0.dmg \
-  dist/releases/KEFCompanion-v1.0.0.zip \
+  dist/releases/Ampestra-v1.0.0.dmg \
+  dist/releases/Ampestra-v1.0.0.zip \
   dist/releases/sparkle-appcast.xml \
-  --title "KEF Companion v1.0.0" \
+  --title "Ampestra v1.0.0" \
   --notes "Initial release."
 ```
 
@@ -108,7 +108,7 @@ publishing.
 ## Useful Details
 
 - Release scripts read `CFBundleShortVersionString` and `CFBundleVersion` from
-  `Sources/KEFCompanion/Info.plist` unless `VERSION` or `--build` is provided.
+  `Sources/Ampestra/Info.plist` unless `VERSION` or `--build` is provided.
 - `SPARKLE_DOWNLOAD_URL_PREFIX` or `script/release.sh --download-url-prefix URL`
   can override the generated appcast download URL.
 - `SPARKLE_FEED_URL` or `script/release.sh --feed-url URL` can override the feed
