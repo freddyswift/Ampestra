@@ -1,3 +1,4 @@
+import KEFCore
 import SwiftUI
 
 /// Compact media context and transport controls for the menu-bar panel.

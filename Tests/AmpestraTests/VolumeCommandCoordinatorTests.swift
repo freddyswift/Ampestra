@@ -1,5 +1,6 @@
 import XCTest
 @testable import Ampestra
+@testable import KEFCore
 
 @MainActor
 final class VolumeCommandCoordinatorTests: XCTestCase {

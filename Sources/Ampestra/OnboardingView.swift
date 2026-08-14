@@ -1,4 +1,5 @@
 import AppKit
+import KEFCore
 import SwiftUI
 
 /// First-run speaker setup. Local Network access is requested only after the

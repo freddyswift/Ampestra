@@ -3,7 +3,7 @@ import Foundation
 /// Protocol used by `AppState` and settings code instead of depending directly
 /// on a concrete network client. Tests can use lightweight fakes when exercising
 /// connection and action flow.
-protocol KEFSpeakerClient: AnyObject, Sendable {
+public protocol KEFSpeakerClient: AnyObject, Sendable {
     var host: String { get }
 
     func getSnapshot() async throws -> SpeakerSnapshot
@@ -27,29 +27,29 @@ protocol KEFSpeakerClient: AnyObject, Sendable {
 }
 
 extension KEFSpeakerClient {
-    func validateConnection() async throws {
+    public func validateConnection() async throws {
         guard await testConnection() else {
             throw KEFError.connectionFailed
         }
     }
 }
 
-final class KEFSpeakerAPI: Sendable {
+public final class KEFSpeakerAPI: Sendable {
     private static let postSetDataModels: Set<String> = ["LS50WII", "LSXII", "LSXIILT", "LS60"]
     private static let modelAliases: [String: String] = [
         "LS50W2": "LS50WII",
         "LSX2": "LSXII",
         "LSX2LT": "LSXIILT",
     ]
-    static let maximumResponseByteCount = 512 * 1_024
+    public static let maximumResponseByteCount = 512 * 1_024
 
-    let host: String
+    public let host: String
     private let session: URLSession
     private let modelCache = LockedValue<String?>(nil)
     private let setDataUsesPostCache = LockedValue<Bool?>(nil)
     private let supportsBatchedGetDataCache = LockedValue<Bool?>(nil)
 
-    convenience init(host: String) {
+    public convenience init(host: String) {
         self.init(host: host, session: Self.makeDefaultSession())
     }
 
@@ -58,7 +58,7 @@ final class KEFSpeakerAPI: Sendable {
         self.session = session
     }
 
-    static func makeDefaultSession(configuration: URLSessionConfiguration = .ephemeral) -> URLSession {
+    public static func makeDefaultSession(configuration: URLSessionConfiguration = .ephemeral) -> URLSession {
         let config = configuration
         config.timeoutIntervalForRequest = 5
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -220,7 +220,7 @@ final class KEFSpeakerAPI: Sendable {
 
     // MARK: - Read
 
-    func getSnapshot() async throws -> SpeakerSnapshot {
+    public func getSnapshot() async throws -> SpeakerSnapshot {
         if supportsBatchedGetDataCache.value != false {
             do {
                 let snapshot = try await getBatchedSnapshot()
@@ -280,29 +280,29 @@ final class KEFSpeakerAPI: Sendable {
         )
     }
 
-    func getStatus() async throws -> SpeakerStatus {
+    public func getStatus() async throws -> SpeakerStatus {
         let data = try await firstData(path: "settings:/kef/host/speakerStatus")
         let raw = data.string("kefSpeakerStatus") ?? "standby"
         return SpeakerStatus(rawValue: raw) ?? .standby
     }
 
-    func getSource() async throws -> SpeakerSource {
+    public func getSource() async throws -> SpeakerSource {
         let data = try await firstData(path: "settings:/kef/play/physicalSource")
         let raw = data.string("kefPhysicalSource") ?? "standby"
         return SpeakerSource(rawValue: raw) ?? .wifi
     }
 
-    func getVolume() async throws -> Int {
+    public func getVolume() async throws -> Int {
         let data = try await firstData(path: "player:volume")
         return data.int("i32_") ?? 0
     }
 
-    func getSpeakerName() async throws -> String {
+    public func getSpeakerName() async throws -> String {
         let data = try await firstData(path: "settings:/deviceName")
         return data.string("string_") ?? "KEF Speaker"
     }
 
-    func getModel() async throws -> String {
+    public func getModel() async throws -> String {
         if let cached = modelCache.value {
             return cached
         }
@@ -322,15 +322,15 @@ final class KEFSpeakerAPI: Sendable {
         try await firstData(path: "player:player/data")
     }
 
-    func getIsPlaying() async throws -> Bool {
+    public func getIsPlaying() async throws -> Bool {
         try await getPlayerState().isPlaying
     }
 
-    func getNowPlayingInfo() async throws -> NowPlayingInfo {
+    public func getNowPlayingInfo() async throws -> NowPlayingInfo {
         try await getPlayerState().nowPlaying
     }
 
-    func getPlayerState() async throws -> PlayerState {
+    public func getPlayerState() async throws -> PlayerState {
         let data = try await getPlayerData()
         let trackRoles = data.object("trackRoles")
         let mediaData = trackRoles?["mediaData"]?.objectValue
@@ -348,7 +348,7 @@ final class KEFSpeakerAPI: Sendable {
 
     // MARK: - Write
 
-    func setVolume(_ volume: Int) async throws {
+    public func setVolume(_ volume: Int) async throws {
         let clamped = max(0, min(100, volume))
         try await setData(
             path: "player:volume",
@@ -356,28 +356,28 @@ final class KEFSpeakerAPI: Sendable {
         )
     }
 
-    func setSource(_ source: SpeakerSource) async throws {
+    public func setSource(_ source: SpeakerSource) async throws {
         try await setData(
             path: "settings:/kef/play/physicalSource",
             value: ["type": .string("kefPhysicalSource"), "kefPhysicalSource": .string(source.rawValue)]
         )
     }
 
-    func powerOn() async throws {
+    public func powerOn() async throws {
         try await setData(
             path: "settings:/kef/play/physicalSource",
             value: ["type": .string("kefPhysicalSource"), "kefPhysicalSource": .string("powerOn")]
         )
     }
 
-    func shutdown() async throws {
+    public func shutdown() async throws {
         try await setData(
             path: "settings:/kef/play/physicalSource",
             value: ["type": .string("kefPhysicalSource"), "kefPhysicalSource": .string("standby")]
         )
     }
 
-    func togglePlayPause() async throws {
+    public func togglePlayPause() async throws {
         try await setData(
             path: "player:player/control",
             roles: "activate",
@@ -385,7 +385,7 @@ final class KEFSpeakerAPI: Sendable {
         )
     }
 
-    func nextTrack() async throws {
+    public func nextTrack() async throws {
         try await setData(
             path: "player:player/control",
             roles: "activate",
@@ -393,7 +393,7 @@ final class KEFSpeakerAPI: Sendable {
         )
     }
 
-    func previousTrack() async throws {
+    public func previousTrack() async throws {
         try await setData(
             path: "player:player/control",
             roles: "activate",
@@ -401,7 +401,7 @@ final class KEFSpeakerAPI: Sendable {
         )
     }
 
-    func testConnection() async -> Bool {
+    public func testConnection() async -> Bool {
         do {
             try await validateConnection()
             return true
@@ -410,7 +410,7 @@ final class KEFSpeakerAPI: Sendable {
         }
     }
 
-    func validateConnection() async throws {
+    public func validateConnection() async throws {
         _ = try await getStatus()
     }
 

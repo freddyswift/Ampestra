@@ -1,7 +1,7 @@
 import Foundation
 import Network
 import XCTest
-@testable import Ampestra
+@testable import KEFCore
 
 final class KEFSpeakerAPITests: XCTestCase {
     func testGetStatusBuildsGetDataRequest() async throws {
@@ -122,6 +122,28 @@ final class KEFSpeakerAPITests: XCTestCase {
         try await api.setVolume(30)
 
         XCTAssertEqual(recorder.requests.last?.method, "POST")
+    }
+
+    func testEverySupportedCurrentModelUsesPostSetData() async throws {
+        let supportedModels = ["LS50WII", "LSXII", "LSXIILT", "LS60"]
+
+        for model in supportedModels {
+            let (api, recorder) = makeAPI { request in
+                switch request.url.path {
+                case "/api/getData" where request.queryValue("path") == "settings:/releasetext":
+                    return .json(#"[{"string_":"\#(model)_V99999"}]"#)
+                case "/api/setData":
+                    return .json("true")
+                default:
+                    throw URLError(.badURL)
+                }
+            }
+
+            try await api.setVolume(35)
+
+            XCTAssertEqual(recorder.requests.last?.method, "POST", "Expected POST writes for \(model)")
+            XCTAssertEqual(recorder.requests.last?.url.path, "/api/setData", "Unexpected endpoint for \(model)")
+        }
     }
 
     func testSetDataRejectsExplicitFalseAcknowledgement() async throws {

@@ -7,21 +7,26 @@ import Foundation
 /// either send every integer value or snap user input to a configured fixed
 /// step. Keeping this logic outside `AppState` makes the behavior deterministic
 /// and easy to validate without launching the macOS app.
-struct VolumePolicy: Equatable, Sendable {
-    static let allowedStepRange = 1...25
+public struct VolumePolicy: Equatable, Sendable {
+    public static let allowedStepRange = 1...25
 
-    var usesFixedSteps: Bool
-    var stepSize: Int
+    public var usesFixedSteps: Bool
+    public var stepSize: Int
 
-    var clampedStepSize: Int {
+    public init(usesFixedSteps: Bool, stepSize: Int) {
+        self.usesFixedSteps = usesFixedSteps
+        self.stepSize = stepSize
+    }
+
+    public var clampedStepSize: Int {
         Self.clampedStepSize(stepSize)
     }
 
-    static func clampedStepSize(_ stepSize: Int) -> Int {
+    public static func clampedStepSize(_ stepSize: Int) -> Int {
         min(max(stepSize, allowedStepRange.lowerBound), allowedStepRange.upperBound)
     }
 
-    func normalizedVolume(_ volume: Int) -> Int {
+    public func normalizedVolume(_ volume: Int) -> Int {
         let clampedVolume = Self.clampedVolume(volume)
         guard usesFixedSteps, clampedStepSize > 1 else { return clampedVolume }
 
@@ -29,7 +34,7 @@ struct VolumePolicy: Equatable, Sendable {
         return Self.clampedVolume(roundedVolume)
     }
 
-    func nextVolume(from currentVolume: Int, direction: Int) -> Int {
+    public func nextVolume(from currentVolume: Int, direction: Int) -> Int {
         let direction = direction.signum()
         let clampedVolume = Self.clampedVolume(currentVolume)
         guard direction != 0 else { return clampedVolume }
@@ -49,7 +54,7 @@ struct VolumePolicy: Equatable, Sendable {
         return max(0, previousStep)
     }
 
-    static func muteToggle(from currentVolume: Int, restoreVolume: Int?) -> (targetVolume: Int, restoreVolume: Int?) {
+    public static func muteToggle(from currentVolume: Int, restoreVolume: Int?) -> (targetVolume: Int, restoreVolume: Int?) {
         let clampedCurrentVolume = clampedVolume(currentVolume)
         if clampedCurrentVolume > 0 {
             return (targetVolume: 0, restoreVolume: clampedCurrentVolume)
@@ -67,7 +72,7 @@ struct VolumePolicy: Equatable, Sendable {
         return (targetVolume: clampedRestoreVolume, restoreVolume: nil)
     }
 
-    static func clampedVolume(_ volume: Int) -> Int {
+    public static func clampedVolume(_ volume: Int) -> Int {
         max(0, min(100, volume))
     }
 }

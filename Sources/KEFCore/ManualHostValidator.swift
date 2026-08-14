@@ -5,8 +5,8 @@ import Foundation
 /// The app controls only local speakers, so public IPs and URL-like strings are
 /// rejected. This reduces accidental requests to arbitrary hosts and keeps the
 /// settings UI focused on private LAN addresses or Bonjour `.local` names.
-enum ManualHostValidator {
-    static func normalizedHost(_ host: String) -> String? {
+public enum ManualHostValidator {
+    public static func normalizedHost(_ host: String) -> String? {
         let normalized = host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return nil }
         guard normalized.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else { return nil }
@@ -23,7 +23,7 @@ enum ManualHostValidator {
         return nil
     }
 
-    static func normalizedDiscoveryHost(_ host: String) -> String? {
+    public static func normalizedDiscoveryHost(_ host: String) -> String? {
         guard let normalized = normalizedHost(host),
               !isLoopbackIPv4Address(normalized) else {
             return nil

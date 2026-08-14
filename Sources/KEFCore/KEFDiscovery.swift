@@ -1,21 +1,22 @@
 import Darwin
+import Combine
 import Foundation
 import Network
 
 @MainActor
-final class KEFDiscovery: ObservableObject {
+public final class KEFDiscovery: ObservableObject {
     private struct ServiceResolutionID: Hashable {
         var name: String
         var type: String
         var domain: String
     }
 
-    @Published var speakers: [DiscoveredSpeaker] = []
-    @Published var isSearching = false
-    @Published private(set) var lastError: String?
-    @Published private(set) var lastStartedAt: Date?
+    @Published public var speakers: [DiscoveredSpeaker] = []
+    @Published public var isSearching = false
+    @Published public private(set) var lastError: String?
+    @Published public private(set) var lastStartedAt: Date?
 
-    var localNetworkAccessDeniedHandler: (() -> Void)?
+    public var localNetworkAccessDeniedHandler: (() -> Void)?
 
     private var httpBrowser: NWBrowser?
     private var raopBrowser: NWBrowser?
@@ -24,7 +25,9 @@ final class KEFDiscovery: ObservableObject {
     private var scheduledHTTPServices: Set<ServiceResolutionID> = []
     private var discoveryGeneration = 0
 
-    func startDiscovery() {
+    public init() {}
+
+    public func startDiscovery() {
         stopDiscovery()
         discoveryGeneration += 1
         let generation = discoveryGeneration
@@ -95,7 +98,7 @@ final class KEFDiscovery: ObservableObject {
         }
     }
 
-    func stopDiscovery() {
+    public func stopDiscovery() {
         discoveryGeneration += 1
         stopCurrentDiscovery()
     }
@@ -180,7 +183,7 @@ final class KEFDiscovery: ObservableObject {
         }
     }
 
-    nonisolated static func isLocalNetworkPolicyDenied(_ error: NWError) -> Bool {
+    public nonisolated static func isLocalNetworkPolicyDenied(_ error: NWError) -> Bool {
         guard case .dns(let errorCode) = error else { return false }
         return errorCode == kDNSServiceErr_PolicyDenied
     }
@@ -211,7 +214,7 @@ final class KEFDiscovery: ObservableObject {
         }
     }
 
-    nonisolated static func isLikelyKEFSpeakerService(_ name: String) -> Bool {
+    public nonisolated static func isLikelyKEFSpeakerService(_ name: String) -> Bool {
         let uppercasedName = normalizedServiceName(name).uppercased()
         return uppercasedName.contains("LSX") ||
             uppercasedName.contains("LS50") ||
@@ -219,7 +222,7 @@ final class KEFDiscovery: ObservableObject {
             uppercasedName.contains("KEF")
     }
 
-    nonisolated static func parseRAOPServiceName(_ name: String) -> (speakerName: String, macAddress: String)? {
+    public nonisolated static func parseRAOPServiceName(_ name: String) -> (speakerName: String, macAddress: String)? {
         guard isLikelyKEFSpeakerService(name),
               let separatorIndex = name.firstIndex(of: "@") else {
             return nil
@@ -242,7 +245,7 @@ final class KEFDiscovery: ObservableObject {
         return (speakerName, macAddress)
     }
 
-    nonisolated static func normalizedServiceName(_ name: String) -> String {
+    public nonisolated static func normalizedServiceName(_ name: String) -> String {
         displayName(fromServiceName: name)
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -250,7 +253,7 @@ final class KEFDiscovery: ObservableObject {
             .lowercased()
     }
 
-    nonisolated static func displayName(fromServiceName name: String) -> String {
+    public nonisolated static func displayName(fromServiceName name: String) -> String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -310,7 +313,7 @@ final class KEFDiscovery: ObservableObject {
         return String(cString: buf)
     }
 
-    nonisolated static func normalizedHostname(_ hostname: String) -> String {
+    public nonisolated static func normalizedHostname(_ hostname: String) -> String {
         var normalized = hostname.trimmingCharacters(in: .whitespacesAndNewlines)
         while normalized.hasSuffix(".") {
             normalized.removeLast()

@@ -1,3 +1,4 @@
+import KEFCore
 import SwiftUI
 
 struct AdvancedConnectionOptionsSection: View {

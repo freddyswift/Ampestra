@@ -1,5 +1,5 @@
 import XCTest
-@testable import Ampestra
+@testable import KEFCore
 
 final class VolumePolicyTests: XCTestCase {
     func testClampsStepSize() {

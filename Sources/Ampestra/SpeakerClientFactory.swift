@@ -1,3 +1,5 @@
+import KEFCore
+
 protocol KEFSpeakerClientFactory {
     func makeClient(host: String) -> KEFSpeakerClient
 }

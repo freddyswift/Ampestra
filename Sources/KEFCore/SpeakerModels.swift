@@ -6,35 +6,61 @@ import Foundation
 /// address, but discovery can fall back to a `.local` hostname when IPv4 lookup
 /// fails. `macAddress` is optional because it is learned from RAOP, not the HTTP
 /// control service.
-struct DiscoveredSpeaker: Identifiable, Equatable, Hashable {
-    let id: String
-    let name: String
-    let host: String
-    let macAddress: String?
+public struct DiscoveredSpeaker: Identifiable, Equatable, Hashable, Sendable {
+    public let id: String
+    public let name: String
+    public let host: String
+    public let macAddress: String?
+
+    public init(id: String, name: String, host: String, macAddress: String?) {
+        self.id = id
+        self.name = name
+        self.host = host
+        self.macAddress = macAddress
+    }
 }
 
-struct NowPlayingInfo: Equatable {
-    var title: String?
-    var artist: String?
-    var album: String?
+public struct NowPlayingInfo: Equatable, Sendable {
+    public var title: String?
+    public var artist: String?
+    public var album: String?
 
-    var hasInfo: Bool {
+    public init(title: String? = nil, artist: String? = nil, album: String? = nil) {
+        self.title = title
+        self.artist = artist
+        self.album = album
+    }
+
+    public var hasInfo: Bool {
         title != nil || artist != nil
     }
 }
 
-struct PlayerState: Equatable {
-    var isPlaying: Bool
-    var nowPlaying: NowPlayingInfo
+public struct PlayerState: Equatable, Sendable {
+    public var isPlaying: Bool
+    public var nowPlaying: NowPlayingInfo
+
+    public init(isPlaying: Bool, nowPlaying: NowPlayingInfo) {
+        self.isPlaying = isPlaying
+        self.nowPlaying = nowPlaying
+    }
 }
 
 /// Steady-state values fetched together during the regular polling loop.
-struct SpeakerSnapshot: Equatable {
-    var status: SpeakerStatus
-    var source: SpeakerSource
-    var volume: Int
-    var name: String
-    var model: String
+public struct SpeakerSnapshot: Equatable, Sendable {
+    public var status: SpeakerStatus
+    public var source: SpeakerSource
+    public var volume: Int
+    public var name: String
+    public var model: String
+
+    public init(status: SpeakerStatus, source: SpeakerSource, volume: Int, name: String, model: String) {
+        self.status = status
+        self.source = source
+        self.volume = volume
+        self.name = name
+        self.model = model
+    }
 }
 
 /// User preference for how hardware volume keys should be routed.
@@ -42,14 +68,14 @@ struct SpeakerSnapshot: Equatable {
 /// Auto mode is intentionally source-aware. For WiFi/Bluetooth playback the app
 /// only intercepts keys while the speaker reports active playback, allowing the
 /// same keys to control macOS when the speaker is paused.
-enum VolumeKeyRoutingMode: String, CaseIterable, Identifiable {
+public enum VolumeKeyRoutingMode: String, CaseIterable, Identifiable, Sendable {
     case mac
     case auto
     case speaker
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
-    var requiresMediaKeyAccess: Bool {
+    public var requiresMediaKeyAccess: Bool {
         switch self {
         case .mac:
             false
@@ -63,7 +89,7 @@ enum VolumeKeyRoutingMode: String, CaseIterable, Identifiable {
 ///
 /// The raw values are sent directly to the speaker, so changing them is a wire
 /// protocol change rather than only a UI label change.
-enum SpeakerSource: String, CaseIterable, Identifiable {
+public enum SpeakerSource: String, CaseIterable, Identifiable, Sendable {
     case wifi
     case bluetooth
     case tv
@@ -72,9 +98,9 @@ enum SpeakerSource: String, CaseIterable, Identifiable {
     case analog
     case usb
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
-    var displayName: String {
+    public var displayName: String {
         switch self {
         case .wifi:
             "Wi‑Fi"
@@ -93,7 +119,7 @@ enum SpeakerSource: String, CaseIterable, Identifiable {
         }
     }
 
-    var systemImage: String {
+    public var systemImage: String {
         switch self {
         case .wifi:
             "wifi"
@@ -112,7 +138,7 @@ enum SpeakerSource: String, CaseIterable, Identifiable {
         }
     }
 
-    static let inputSources: [SpeakerSource] = [
+    public static let inputSources: [SpeakerSource] = [
         .wifi,
         .bluetooth,
         .tv,
@@ -125,19 +151,19 @@ enum SpeakerSource: String, CaseIterable, Identifiable {
 
 /// Minimal power state used by the panel. The KEF API exposes this through the
 /// speaker status endpoint, separate from the selected physical source.
-enum SpeakerStatus: String {
+public enum SpeakerStatus: String, Sendable {
     case powerOn
     case standby
 }
 
 /// User-facing API errors. Low-level URLSession and decoding errors are mapped
 /// into these cases where the app can provide a clearer connection message.
-enum KEFError: LocalizedError {
+public enum KEFError: LocalizedError, Sendable {
     case invalidResponse
     case connectionFailed
     case apiError(String)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .invalidResponse:
             "Invalid response from speaker"

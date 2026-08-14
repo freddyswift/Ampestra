@@ -1,4 +1,5 @@
 import Foundation
+import KEFCore
 
 @MainActor
 final class VolumeCommandCoordinator {

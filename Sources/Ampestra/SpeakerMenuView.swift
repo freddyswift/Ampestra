@@ -1,4 +1,5 @@
 import AppKit
+import KEFCore
 import SwiftUI
 
 /// Primary menu-bar panel.

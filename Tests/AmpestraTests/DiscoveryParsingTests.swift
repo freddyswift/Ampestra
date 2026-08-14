@@ -1,7 +1,7 @@
 import Darwin
 import Network
 import XCTest
-@testable import Ampestra
+@testable import KEFCore
 
 final class DiscoveryParsingTests: XCTestCase {
     func testParsesRAOPServiceNames() {

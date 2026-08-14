@@ -7,7 +7,8 @@ import Foundation
 /// target MAC address repeated 16 times. `makeWakeOnLANMagicPacket` is separate
 /// from socket I/O so packet construction can be tested without touching the
 /// network.
-func sendWakeOnLAN(macAddress: String) -> Bool {
+@discardableResult
+public func sendWakeOnLAN(macAddress: String) -> Bool {
     guard let packet = makeWakeOnLANMagicPacket(macAddress: macAddress) else { return false }
 
     let socketFileDescriptor = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
@@ -46,7 +47,7 @@ func sendWakeOnLAN(macAddress: String) -> Bool {
     return sentByteCount == packet.count
 }
 
-func makeWakeOnLANMagicPacket(macAddress: String) -> [UInt8]? {
+public func makeWakeOnLANMagicPacket(macAddress: String) -> [UInt8]? {
     let hex = macAddress
         .replacingOccurrences(of: ":", with: "")
         .replacingOccurrences(of: "-", with: "")

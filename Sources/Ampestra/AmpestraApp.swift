@@ -1,4 +1,5 @@
 import AppKit
+import KEFCore
 import OSLog
 import SwiftUI
 

@@ -1,6 +1,7 @@
 import Combine
 import XCTest
 @testable import Ampestra
+@testable import KEFCore
 
 @MainActor
 final class AppStateMenuUITests: XCTestCase {
