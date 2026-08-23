@@ -18,6 +18,7 @@ public_ed_key="${SPARKLE_PUBLIC_ED_KEY:-}"
 archives_dir="${RELEASE_DIR:-$ROOT_DIR/dist/releases}"
 download_url_prefix="${SPARKLE_DOWNLOAD_URL_PREFIX:-}"
 notary_profile="${NOTARY_PROFILE:-}"
+release_build_system="${AMPESTRA_RELEASE_BUILD_SYSTEM:-native}"
 generate_appcast=true
 create_dmg=true
 appcast_input_dir=""
@@ -222,12 +223,25 @@ fi
 
 cd "$ROOT_DIR"
 
+echo "Cleaning cached SwiftPM products so the release uses the active Xcode SDK..."
+"$SWIFT" package clean
+
 echo "Building $APP_DISPLAY_NAME $version ($build_number) for $release_tag..."
+AMPESTRA_SWIFT_BUILD_SYSTEM="$release_build_system" \
 AMPESTRA_VERSION="$version" \
 AMPESTRA_BUILD="$build_number" \
 SPARKLE_FEED_URL="$feed_url" \
 SPARKLE_PUBLIC_ED_KEY="$public_ed_key" \
 ./script/install_app.sh --stage-only
+
+linked_sdk="$(/usr/bin/vtool -show-build "$APP_DIR/Contents/MacOS/$APP_NAME" | awk '/ sdk / { print $2; exit }')"
+linked_sdk_major="${linked_sdk%%.*}"
+if [[ -z "$linked_sdk" || ! "$linked_sdk_major" =~ ^[0-9]+$ || "$linked_sdk_major" -lt 26 ]]; then
+  echo "Release executable was linked against SDK ${linked_sdk:-unknown}; SDK 26 or newer is required for native Liquid Glass." >&2
+  echo "Use Xcode 26 or newer and a release build system that preserves the active SDK marker." >&2
+  exit 2
+fi
+echo "Verified release executable is linked against SDK $linked_sdk."
 
 codesign --verify --deep --strict "$APP_DIR"
 
