@@ -80,11 +80,13 @@ struct SpeakerMenuView: View {
             subtleDivider
 
             ScrollView {
-                Group {
-                    if appState.isConnected {
-                        connectedContent
-                    } else {
-                        disconnectedContent
+                PanelGlassEffectContainer(spacing: 10) {
+                    Group {
+                        if appState.isConnected {
+                            connectedContent
+                        } else {
+                            disconnectedContent
+                        }
                     }
                 }
                 .padding(10)
@@ -319,6 +321,7 @@ struct SpeakerMenuView: View {
             }
             .menuIndicator(.hidden)
             .controlSize(.small)
+            .panelFloatingButtonStyle()
             .help("Ampestra menu")
         }
     }
@@ -378,6 +381,12 @@ struct SpeakerMenuView: View {
                 .padding(.vertical, 7)
             }
         }
+        .padding(10)
+        .panelGroupedBackground(
+            RoundedRectangle(cornerRadius: 12, style: .continuous),
+            fillOpacity: 0.32,
+            strokeOpacity: 0.08
+        )
     }
 
     private var sourceMenu: some View {
