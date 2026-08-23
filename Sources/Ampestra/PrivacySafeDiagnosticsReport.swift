@@ -37,6 +37,7 @@ enum PrivacySafeDiagnosticsReport {
             "Volume step mode: \(appState.useFixedVolumeSteps ? "fixed" : "any")",
             "Volume step size: \(appState.volumeStepSize)",
             "Keyboard routing mode: \(appState.volumeKeyRoutingMode.rawValue)",
+            "Keyboard KEF sources: \(appState.volumeKeyRoutingSources.map(\.rawValue).sorted().joined(separator: ","))",
             "Media-key access state: \(appState.mediaKeyAccessState)",
             "Media-key restart needed: \(appState.needsRestartForMediaKeyAccess)",
             "",

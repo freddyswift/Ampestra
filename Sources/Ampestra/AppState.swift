@@ -51,6 +51,8 @@ final class AppState: ObservableObject {
             refreshMediaKeyAccessStatus()
         }
     }
+    @AppStorage("volumeKeyRoutingSources") private var storedVolumeKeyRoutingSources: String =
+        SpeakerSource.inputSources.map(\.rawValue).joined(separator: ",")
     @AppStorage("useFixedVolumeSteps") private var storedUseFixedVolumeSteps: Bool = true
     @AppStorage("volumeStepSize") private var storedVolumeStepSize: Int = 5
     @AppStorage("hasCompletedOnboarding") var hasCompletedOnboarding: Bool = false
@@ -142,8 +144,23 @@ final class AppState: ObservableObject {
         Double(effectiveVolumeStep)
     }
 
+    var volumeKeyRoutingSources: Set<SpeakerSource> {
+        Set(
+            storedVolumeKeyRoutingSources
+                .split(separator: ",")
+                .compactMap { SpeakerSource(rawValue: String($0)) }
+        )
+    }
+
+    var requiresMediaKeyAccess: Bool {
+        volumeKeyRoutingPolicy.requiresMediaKeyAccess
+    }
+
     var usesDefaultControlPreferences: Bool {
-        useFixedVolumeSteps && volumeStepSize == 5 && volumeKeyRoutingMode == .mac
+        useFixedVolumeSteps
+            && volumeStepSize == 5
+            && volumeKeyRoutingMode == .mac
+            && volumeKeyRoutingSources == Set(SpeakerSource.inputSources)
     }
 
     func setUseFixedVolumeSteps(_ enabled: Bool) {
@@ -159,9 +176,36 @@ final class AppState: ObservableObject {
         storedVolumeStepSize = clampedStep
     }
 
+    func routesVolumeKeysToSpeaker(on source: SpeakerSource) -> Bool {
+        volumeKeyRoutingSources.contains(source)
+    }
+
+    func setVolumeKeyRoutingEnabled(_ enabled: Bool, for source: SpeakerSource) {
+        var sources = volumeKeyRoutingSources
+        if enabled {
+            sources.insert(source)
+        } else {
+            sources.remove(source)
+        }
+
+        let encodedSources = SpeakerSource.inputSources
+            .filter { sources.contains($0) }
+            .map(\.rawValue)
+            .joined(separator: ",")
+        guard storedVolumeKeyRoutingSources != encodedSources else { return }
+
+        objectWillChange.send()
+        storedVolumeKeyRoutingSources = encodedSources
+        refreshMediaKeyAccessStatus()
+    }
+
     func resetControlPreferences() {
         setUseFixedVolumeSteps(true)
         setVolumeStepSize(5)
+        objectWillChange.send()
+        storedVolumeKeyRoutingSources = SpeakerSource.inputSources
+            .map(\.rawValue)
+            .joined(separator: ",")
         volumeKeyRoutingMode = .mac
     }
 
@@ -173,6 +217,13 @@ final class AppState: ObservableObject {
         VolumePolicy(usesFixedSteps: useFixedVolumeSteps, stepSize: volumeStepSize)
     }
 
+    private var volumeKeyRoutingPolicy: VolumeKeyRoutingPolicy {
+        VolumeKeyRoutingPolicy(
+            mode: volumeKeyRoutingMode,
+            speakerSources: volumeKeyRoutingSources
+        )
+    }
+
     func setVolumeHUDSuppressed(_ suppressed: Bool) {
         guard isVolumeHUDSuppressed != suppressed else { return }
         isVolumeHUDSuppressed = suppressed
@@ -182,7 +233,7 @@ final class AppState: ObservableObject {
     }
 
     func refreshMediaKeyAccessStatus() {
-        guard volumeKeyRoutingMode.requiresMediaKeyAccess else {
+        guard requiresMediaKeyAccess else {
             mediaKeyController.invalidate()
             setMediaKeyAccessState(
                 .unknown,
@@ -244,7 +295,7 @@ final class AppState: ObservableObject {
     }
 
     func requestMediaKeyAccess() {
-        guard volumeKeyRoutingMode.requiresMediaKeyAccess else {
+        guard requiresMediaKeyAccess else {
             refreshMediaKeyAccessStatus()
             return
         }
@@ -625,6 +676,7 @@ final class AppState: ObservableObject {
     private var isPlaybackStatePollingNeeded: Bool {
         volumeKeyRoutingMode == .auto
             && mediaKeyAccessState == .working
+            && volumeKeyRoutingSources.contains(source)
             && source.usesPlaybackStateForVolumeRouting
             && status == .powerOn
     }
@@ -996,16 +1048,12 @@ final class AppState: ObservableObject {
     }
 
     private var shouldRouteVolumeKeysToSpeaker: Bool {
-        guard isConnected, status == .powerOn else { return false }
-
-        switch volumeKeyRoutingMode {
-        case .mac:
-            return false
-        case .auto:
-            return source.usesPlaybackStateForVolumeRouting ? isPlaying : true
-        case .speaker:
-            return true
-        }
+        volumeKeyRoutingPolicy.routesToSpeaker(
+            isConnected: isConnected,
+            status: status,
+            source: source,
+            isPlaying: isPlaying
+        )
     }
 
     private func migrateLegacyVolumeKeyPreference() {
@@ -1062,11 +1110,5 @@ final class AppState: ObservableObject {
         return discovery.speakers
             .compactMap { trustedHostForAutoConnection($0.host) }
             .first
-    }
-}
-
-private extension SpeakerSource {
-    var usesPlaybackStateForVolumeRouting: Bool {
-        self == .wifi || self == .bluetooth
     }
 }

@@ -3,7 +3,7 @@ import SwiftUI
 
 enum SettingsMetrics {
     static let windowWidth: CGFloat = 520
-    static let generalPageHeight: CGFloat = 490
+    static let generalPageHeight: CGFloat = 590
     static let connectionPageHeight: CGFloat = 420
     static let segmentedControlWidth: CGFloat = 240
 }

@@ -3,8 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEV_APP_DIR="$ROOT_DIR/dist/Ampestra Dev.app"
-DEV_BUNDLE_ID="com.freddyswift.Ampestra.dev"
-PROD_BUNDLE_ID="com.freddyswift.Ampestra"
+DEV_BUNDLE_ID="com.freddyswift.ampestra.macos.dev"
+PROD_BUNDLE_ID="com.freddyswift.ampestra.macos"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 include_production_permissions=false

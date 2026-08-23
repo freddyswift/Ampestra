@@ -77,7 +77,7 @@ public func ampestraDevMain() {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let diagnosticLogger = Logger(
-        subsystem: "com.freddyswift.Ampestra.dev",
+        subsystem: "com.freddyswift.ampestra.macos.dev",
         category: "LocalNetworkDiagnostic"
     )
 

@@ -178,7 +178,7 @@ create_release_dmg() {
       --force \
       --sign "$signing_identity" \
       --timestamp \
-      --identifier "com.freddyswift.Ampestra.disk-image" \
+      --identifier "com.freddyswift.ampestra.macos.disk-image" \
       "$output_path"
     codesign --verify --verbose=2 "$output_path"
   elif [[ -n "$notary_profile" ]]; then

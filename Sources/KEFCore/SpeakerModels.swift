@@ -65,9 +65,10 @@ public struct SpeakerSnapshot: Equatable, Sendable {
 
 /// User preference for how hardware volume keys should be routed.
 ///
-/// Auto mode is intentionally source-aware. For WiFi/Bluetooth playback the app
-/// only intercepts keys while the speaker reports active playback, allowing the
-/// same keys to control macOS when the speaker is paused.
+/// Auto mode is intentionally source-aware. Callers provide the set of sources
+/// that should receive hardware-volume events. For WiFi/Bluetooth playback the
+/// app only intercepts keys while the speaker reports active playback, allowing
+/// the same keys to control macOS when the speaker is paused.
 public enum VolumeKeyRoutingMode: String, CaseIterable, Identifiable, Sendable {
     case mac
     case auto
@@ -89,7 +90,7 @@ public enum VolumeKeyRoutingMode: String, CaseIterable, Identifiable, Sendable {
 ///
 /// The raw values are sent directly to the speaker, so changing them is a wire
 /// protocol change rather than only a UI label change.
-public enum SpeakerSource: String, CaseIterable, Identifiable, Sendable {
+public enum SpeakerSource: String, CaseIterable, Hashable, Identifiable, Sendable {
     case wifi
     case bluetooth
     case tv
@@ -136,6 +137,13 @@ public enum SpeakerSource: String, CaseIterable, Identifiable, Sendable {
         case .usb:
             "cable.connector.horizontal"
         }
+    }
+
+    /// Network playback can report whether audio is actively playing. The
+    /// remaining physical inputs cannot, so an enabled input routes whenever
+    /// it is selected and the speaker is powered on.
+    public var usesPlaybackStateForVolumeRouting: Bool {
+        self == .wifi || self == .bluetooth
     }
 
     public static let inputSources: [SpeakerSource] = [

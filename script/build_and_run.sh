@@ -6,7 +6,7 @@ SWIFT="$ROOT_DIR/script/swift.sh"
 BINARY_NAME="Ampestra"
 DEV_PAYLOAD_NAME="libAmpestraDevPayload.dylib"
 BASE_BUNDLE_NAME="Ampestra"
-BASE_BUNDLE_IDENTIFIER="com.freddyswift.Ampestra"
+BASE_BUNDLE_IDENTIFIER="com.freddyswift.ampestra.macos"
 # macOS Local Network privacy includes the main executable UUID in its app
 # identity. Keep the Dev launcher's UUID fixed across payload rebuilds. This is
 # the UUID macOS has cached for the enabled Ampestra Dev Local Network row.

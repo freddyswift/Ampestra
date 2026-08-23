@@ -33,6 +33,21 @@ final class AppStateMenuUITests: XCTestCase {
         XCTAssertFalse(appState.shouldShowOnboarding)
     }
 
+    func testVolumeKeySourcesCanBeConfiguredAndPersistIndependently() {
+        let appState = AppState(startImmediately: false)
+
+        XCTAssertEqual(appState.volumeKeyRoutingSources, Set(SpeakerSource.inputSources))
+
+        appState.setVolumeKeyRoutingEnabled(false, for: .tv)
+
+        XCTAssertTrue(appState.routesVolumeKeysToSpeaker(on: .wifi))
+        XCTAssertFalse(appState.routesVolumeKeysToSpeaker(on: .tv))
+
+        let restoredAppState = AppState(startImmediately: false)
+        XCTAssertTrue(restoredAppState.routesVolumeKeysToSpeaker(on: .wifi))
+        XCTAssertFalse(restoredAppState.routesVolumeKeysToSpeaker(on: .tv))
+    }
+
     func testReturningUserCanConnectBeforeOpeningMenuPanel() async {
         UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
         let speaker = MenuUITestSpeaker()
@@ -160,6 +175,7 @@ final class AppStateMenuUITests: XCTestCase {
             "trustedSpeakerHosts",
             "useAutoDiscovery",
             "volumeKeyRoutingMode",
+            "volumeKeyRoutingSources",
         ] {
             defaults.removeObject(forKey: key)
         }
