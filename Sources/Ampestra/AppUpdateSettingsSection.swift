@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct AppUpdateSettingsSection: View {
@@ -5,12 +6,18 @@ struct AppUpdateSettingsSection: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
+            Image(nsImage: NSApplication.shared.applicationIconImage)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 32, height: 32)
+                .accessibilityHidden(true)
+
             VStack(alignment: .leading, spacing: 2) {
-                Text(appVersionSummary)
-                    .font(.body)
+                Text("Ampestra")
+                    .font(.body.weight(.medium))
                     .lineLimit(1)
 
-                Text(updateStatusDetail)
+                Text("\(appVersionSummary) · \(updateStatusDetail)")
                     .font(.caption)
                     .foregroundStyle(PanelColors.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)

@@ -61,13 +61,7 @@ struct SpeakerSettingsSection: View {
                 .symbolRenderingMode(.hierarchical)
                 .font(.body.weight(.medium))
                 .foregroundStyle(isCurrentSpeaker(speaker) ? Color.accentColor : .secondary)
-                .frame(width: 30, height: 30)
-                .background(
-                    isCurrentSpeaker(speaker)
-                        ? Color.accentColor.opacity(0.14)
-                        : Color.primary.opacity(0.06),
-                    in: RoundedRectangle(cornerRadius: 7, style: .continuous)
-                )
+                .frame(width: 24)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(speaker.name)
@@ -83,15 +77,15 @@ struct SpeakerSettingsSection: View {
 
             if isCurrentSpeaker(speaker) {
                 HStack(spacing: 8) {
-                    HStack(spacing: 5) {
+                    Label {
+                        Text("Connected")
+                            .foregroundStyle(.secondary)
+                    } icon: {
                         Image(systemName: "checkmark.circle.fill")
                             .symbolRenderingMode(.hierarchical)
                             .foregroundStyle(.green)
-
-                        Text("Connected")
                     }
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
+                        .font(.caption.weight(.medium))
 
                     Menu {
                         Button {
@@ -124,7 +118,7 @@ struct SpeakerSettingsSection: View {
                 .controlSize(.small)
             }
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, 2)
     }
 
     private func isCurrentSpeaker(_ speaker: DiscoveredSpeaker) -> Bool {

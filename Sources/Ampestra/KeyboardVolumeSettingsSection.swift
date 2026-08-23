@@ -23,30 +23,6 @@ struct KeyboardVolumeSettingsRows: View {
                     sourceGrid
                 }
             }
-
-            permissionStatus
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 2)
-        }
-    }
-
-    @ViewBuilder
-    private var permissionStatus: some View {
-        if !appState.requiresMediaKeyAccess {
-            settingsNote(
-                "Hardware volume keys control this Mac. Use the menu-bar panel for your KEF speaker."
-            )
-        } else if appState.mediaKeyAccessState == .working {
-            HStack(alignment: .firstTextBaseline, spacing: 7) {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-
-                Text(routingStatusText)
-                    .foregroundStyle(PanelColors.secondaryText)
-            }
-            .font(.caption)
-        } else {
-            MediaKeyPermissionFlowView()
         }
     }
 
@@ -85,6 +61,38 @@ struct KeyboardVolumeSettingsRows: View {
         .toggleStyle(.checkbox)
         .controlSize(.small)
         .frame(width: 108, alignment: .leading)
+    }
+}
+
+/// Contextual guidance belongs to the section footer so it reads as help for
+/// the volume-key controls rather than as another editable preference row.
+struct KeyboardVolumeStatusView: View {
+    @EnvironmentObject private var appState: AppState
+
+    var body: some View {
+        permissionStatus
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 2)
+    }
+
+    @ViewBuilder
+    private var permissionStatus: some View {
+        if !appState.requiresMediaKeyAccess {
+            settingsNote(
+                "Hardware volume keys control this Mac. Use the menu-bar panel for your KEF speaker."
+            )
+        } else if appState.mediaKeyAccessState == .working {
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+
+                Text(routingStatusText)
+                    .foregroundStyle(PanelColors.secondaryText)
+            }
+            .font(.caption)
+        } else {
+            MediaKeyPermissionFlowView()
+        }
     }
 
     private var routingStatusText: String {

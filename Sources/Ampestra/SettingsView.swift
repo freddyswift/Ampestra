@@ -69,6 +69,8 @@ struct SettingsView: View {
                         .help("Restore the default volume controls")
                     }
                 }
+            } footer: {
+                KeyboardVolumeStatusView()
             }
 
             Section("Software Update") {

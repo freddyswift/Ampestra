@@ -31,66 +31,24 @@ enum PanelColors {
     static let tertiaryText = Color(nsColor: .tertiaryLabelColor)
 }
 
-/// A grouped, interactive menu-panel surface. On macOS 26 and newer this uses
-/// native Liquid Glass; older systems retain a standard adaptive material.
+/// A quiet content layer for grouped controls inside the glass menu panel.
+/// The window supplies the Liquid Glass surface, so cards use an adaptive
+/// system fill instead of adding a second refractive layer.
 struct PanelGroupedBackground<BackgroundShape: InsettableShape>: ViewModifier {
     let shape: BackgroundShape
     let fillOpacity: Double
     let strokeOpacity: Double
 
     func body(content: Content) -> some View {
-        glassOrMaterial(content: content)
-    }
-
-    @ViewBuilder
-    private func glassOrMaterial(content: Content) -> some View {
-        #if compiler(>=6.2)
-        if #available(macOS 26.0, *) {
-            content
-                .glassEffect(.regular.interactive(), in: shape)
-        } else {
-            materialFallback(content: content)
-        }
-        #else
-        materialFallback(content: content)
-        #endif
-    }
-
-    private func materialFallback(content: Content) -> some View {
         content
-            .background(.regularMaterial, in: shape)
-            .background(shape.fill(PanelColors.sectionFill.opacity(fillOpacity)))
+            .background(
+                shape
+                    .fill(PanelColors.sectionFill.opacity(fillOpacity))
+            )
             .overlay {
                 shape
                     .strokeBorder(PanelColors.sectionStroke.opacity(strokeOpacity), lineWidth: 1)
             }
-    }
-}
-
-/// Keeps nearby custom glass surfaces in one sampling group so they refract and
-/// respond coherently instead of rendering as unrelated material cards.
-struct PanelGlassEffectContainer<Content: View>: View {
-    let spacing: CGFloat
-    @ViewBuilder let content: Content
-
-    init(spacing: CGFloat = 10, @ViewBuilder content: () -> Content) {
-        self.spacing = spacing
-        self.content = content()
-    }
-
-    @ViewBuilder
-    var body: some View {
-        #if compiler(>=6.2)
-        if #available(macOS 26.0, *) {
-            GlassEffectContainer(spacing: spacing) {
-                content
-            }
-        } else {
-            content
-        }
-        #else
-        content
-        #endif
     }
 }
 

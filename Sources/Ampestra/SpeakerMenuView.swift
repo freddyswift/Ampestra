@@ -80,13 +80,11 @@ struct SpeakerMenuView: View {
             subtleDivider
 
             ScrollView {
-                PanelGlassEffectContainer(spacing: 10) {
-                    Group {
-                        if appState.isConnected {
-                            connectedContent
-                        } else {
-                            disconnectedContent
-                        }
+                Group {
+                    if appState.isConnected {
+                        connectedContent
+                    } else {
+                        disconnectedContent
                     }
                 }
                 .padding(10)
