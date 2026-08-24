@@ -12,14 +12,17 @@ permissions:
 jobs:
   macos:
     name: macOS
-    runs-on: macos-15
+    runs-on: macos-26
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
 
-      - name: Show Swift version
-        run: swift --version
+      - name: Show toolchain versions
+        run: |
+          swift --version
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
 
       - name: Run checks
         run: make check
