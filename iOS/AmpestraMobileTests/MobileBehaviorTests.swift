@@ -263,7 +263,7 @@ final class MobileBehaviorTests: XCTestCase {
 
         let confirmation = try await service.adjustVolume(by: 5)
 
-        XCTAssertEqual(confirmation.message, "Living Room volume is 47.")
+        XCTAssertEqual(String(localized: confirmation.message), "Living Room volume is 47.")
         let volumes = await speaker.recordedVolumes()
         XCTAssertEqual(volumes, [47])
     }
@@ -283,7 +283,7 @@ final class MobileBehaviorTests: XCTestCase {
 
         let confirmation = try await service.setSource(.tv)
 
-        XCTAssertEqual(confirmation.message, "Office is set to TV.")
+        XCTAssertEqual(String(localized: confirmation.message), "Office is set to TV.")
         let sources = await speaker.recordedSources()
         XCTAssertEqual(sources, [.tv])
     }
@@ -299,7 +299,7 @@ final class MobileBehaviorTests: XCTestCase {
         }
     }
 
-    func testSpeakerCommandServicePowerIsIdempotent() async throws {
+    func testSpeakerCommandServicePowersOnSpeakerInStandby() async throws {
         let snapshot = SpeakerSnapshot(
             status: .standby,
             source: .wifi,
@@ -314,9 +314,258 @@ final class MobileBehaviorTests: XCTestCase {
 
         let confirmation = try await service.setPower(on: true)
 
-        XCTAssertEqual(confirmation.message, "Bedroom is on.")
+        XCTAssertEqual(String(localized: confirmation.message), "Bedroom is on.")
         let powerCommands = await speaker.recordedPowerCommands()
         XCTAssertEqual(powerCommands, [true])
+    }
+
+    func testSavedSpeakerMigrationCreatesStableIdentity() {
+        let defaults = makeDefaults()
+        defaults.set("192.168.1.60", forKey: SpeakerPreferenceKeys.savedHost)
+        defaults.set("aabbccddeeff", forKey: SpeakerPreferenceKeys.savedMACAddress)
+
+        let firstStore = SpeakerRecordStore(defaults: defaults)
+        let firstRecord = firstStore.defaultSpeaker()
+        let reloadedRecord = SpeakerRecordStore(defaults: defaults).defaultSpeaker()
+
+        XCTAssertNotNil(defaults.data(forKey: SpeakerPreferenceKeys.savedSpeakers))
+        XCTAssertEqual(firstRecord?.id, reloadedRecord?.id)
+        XCTAssertEqual(firstRecord?.host, "192.168.1.60")
+        XCTAssertEqual(firstRecord?.macAddress, "AA:BB:CC:DD:EE:FF")
+        XCTAssertNil(defaults.object(forKey: SpeakerPreferenceKeys.savedHost))
+        XCTAssertNil(defaults.object(forKey: SpeakerPreferenceKeys.savedMACAddress))
+    }
+
+    func testSavedSpeakerKeepsIdentityWhenAddressChanges() throws {
+        let records = SpeakerRecordStore(defaults: makeDefaults())
+        let first = try XCTUnwrap(
+            records.save(
+                host: "192.168.1.60",
+                macAddress: "AA:BB:CC:DD:EE:FF",
+                snapshot: speakerSnapshot(name: "Living Room")
+            )
+        )
+        let moved = try XCTUnwrap(
+            records.save(
+                host: "living-room.local",
+                macAddress: "aa-bb-cc-dd-ee-ff",
+                snapshot: speakerSnapshot(name: "Living Room")
+            )
+        )
+
+        XCTAssertEqual(moved.id, first.id)
+        XCTAssertEqual(moved.host, "living-room.local")
+        XCTAssertEqual(moved.alternateHosts, ["192.168.1.60"])
+        XCTAssertEqual(records.allSpeakers().count, 1)
+    }
+
+    func testSavingNonDefaultSpeakerDoesNotChangeDefault() throws {
+        let records = SpeakerRecordStore(defaults: makeDefaults())
+        let defaultRecord = try XCTUnwrap(
+            records.save(
+                host: "192.168.1.60",
+                macAddress: "AA:BB:CC:DD:EE:FF",
+                snapshot: speakerSnapshot(name: "Living Room")
+            )
+        )
+        _ = records.save(
+            host: "192.168.1.61",
+            macAddress: "11:22:33:44:55:66",
+            snapshot: speakerSnapshot(name: "Office"),
+            makeDefault: false
+        )
+
+        XCTAssertEqual(records.defaultSpeaker()?.id, defaultRecord.id)
+    }
+
+    func testSpeakerEntityUsesSavedStableIdentity() throws {
+        let records = SpeakerRecordStore(defaults: makeDefaults())
+        let record = try XCTUnwrap(
+            records.save(
+                host: "192.168.1.60",
+                macAddress: nil,
+                snapshot: speakerSnapshot(name: "Kitchen", model: "LSXII")
+            )
+        )
+
+        let entity = SpeakerEntity(record: record)
+
+        XCTAssertEqual(entity.id, record.id)
+        XCTAssertEqual(entity.name, "Kitchen")
+        XCTAssertEqual(entity.model, "LSXII")
+    }
+
+    func testSpeakerCommandServiceUsesConfiguredVolumeStep() async throws {
+        let defaults = makeDefaults()
+        defaults.set(7, forKey: SpeakerPreferenceKeys.volumeStep)
+        let records = SpeakerRecordStore(defaults: defaults)
+        let snapshot = speakerSnapshot(volume: 42)
+        _ = records.save(host: "192.168.1.60", macAddress: nil, snapshot: snapshot)
+        let speaker = StubSpeaker(snapshots: [.success(snapshot)])
+        let service = SpeakerCommandService(speakerRecords: records) { _ in speaker }
+
+        let confirmation = try await service.adjustVolume(direction: 1)
+        let volumes = await speaker.recordedVolumes()
+
+        XCTAssertEqual(confirmation.volume, 49)
+        XCTAssertEqual(volumes, [49])
+    }
+
+    func testSpeakerCommandServiceRestoresLastAudibleVolume() async throws {
+        let records = SpeakerRecordStore(defaults: makeDefaults())
+        _ = records.save(
+            host: "192.168.1.60",
+            macAddress: nil,
+            snapshot: speakerSnapshot(volume: 38)
+        )
+        let mutedSnapshot = speakerSnapshot(volume: 0)
+        let speaker = StubSpeaker(snapshots: [.success(mutedSnapshot)])
+        let service = SpeakerCommandService(speakerRecords: records) { _ in speaker }
+
+        let confirmation = try await service.setMuted(false)
+        let volumes = await speaker.recordedVolumes()
+
+        XCTAssertEqual(confirmation.volume, 38)
+        XCTAssertEqual(volumes, [38])
+    }
+
+    func testSpeakerCommandServiceRetriesTransientRead() async throws {
+        let records = SpeakerRecordStore(defaults: makeDefaults())
+        let snapshot = speakerSnapshot()
+        _ = records.save(host: "192.168.1.60", macAddress: nil, snapshot: snapshot)
+        let speaker = StubSpeaker(snapshots: [.failure(.unreachable), .success(snapshot)])
+        let timing = SpeakerCommandTimingPolicy(
+            readAttempts: 2,
+            readRetryDelay: .zero,
+            wakePollingDelays: []
+        )
+        let service = SpeakerCommandService(
+            speakerRecords: records,
+            clientFactory: { _ in speaker },
+            timing: timing,
+            sleep: { _ in }
+        )
+
+        let confirmation = try await service.status()
+        let readCount = await speaker.snapshotReadCount()
+
+        XCTAssertEqual(confirmation.speakerName, "Living Room")
+        XCTAssertEqual(readCount, 2)
+    }
+
+    func testSpeakerCommandServiceFallsBackToPreviousAddress() async throws {
+        let records = SpeakerRecordStore(defaults: makeDefaults())
+        let snapshot = speakerSnapshot()
+        let first = try XCTUnwrap(
+            records.save(
+                host: "192.168.1.60",
+                macAddress: "AA:BB:CC:DD:EE:FF",
+                snapshot: snapshot
+            )
+        )
+        _ = records.save(
+            host: "living-room.local",
+            macAddress: "AA:BB:CC:DD:EE:FF",
+            snapshot: snapshot
+        )
+        let unavailable = StubSpeaker(snapshots: [.failure(.unreachable)])
+        let reachable = StubSpeaker(snapshots: [.success(snapshot)])
+        let timing = SpeakerCommandTimingPolicy(
+            readAttempts: 1,
+            readRetryDelay: .zero,
+            wakePollingDelays: []
+        )
+        let service = SpeakerCommandService(
+            speakerRecords: records,
+            clientFactory: { host in
+                host == "living-room.local" ? unavailable : reachable
+            },
+            timing: timing,
+            sleep: { _ in }
+        )
+
+        let confirmation = try await service.status(speakerID: first.id)
+        let unavailableReads = await unavailable.snapshotReadCount()
+        let reachableReads = await reachable.snapshotReadCount()
+
+        XCTAssertEqual(confirmation.speakerID, first.id)
+        XCTAssertEqual(records.speaker(id: first.id)?.host, "192.168.1.60")
+        XCTAssertEqual(unavailableReads, 1)
+        XCTAssertEqual(reachableReads, 1)
+    }
+
+    func testSpeakerCommandServiceUsesWakeOnLANWhenSpeakerIsOffline() async throws {
+        let records = SpeakerRecordStore(defaults: makeDefaults())
+        let snapshot = speakerSnapshot(status: .standby)
+        _ = records.save(
+            host: "192.168.1.60",
+            macAddress: "AA:BB:CC:DD:EE:FF",
+            snapshot: snapshot
+        )
+        let speaker = StubSpeaker(snapshots: [.failure(.unreachable), .success(snapshot)])
+        let wakeRecorder = WakeRecorder()
+        let timing = SpeakerCommandTimingPolicy(
+            readAttempts: 1,
+            readRetryDelay: .zero,
+            wakePollingDelays: [.zero]
+        )
+        let service = SpeakerCommandService(
+            speakerRecords: records,
+            clientFactory: { _ in speaker },
+            timing: timing,
+            sleep: { _ in },
+            wakeSender: { macAddress in
+                wakeRecorder.record(macAddress)
+                return true
+            }
+        )
+
+        let confirmation = try await service.setPower(on: true)
+        let powerCommands = await speaker.recordedPowerCommands()
+
+        XCTAssertEqual(wakeRecorder.addresses, ["AA:BB:CC:DD:EE:FF"])
+        XCTAssertEqual(powerCommands, [true])
+        XCTAssertTrue(confirmation.changed)
+        XCTAssertEqual(confirmation.status, .powerOn)
+    }
+
+    func testSpeakerCommandServiceDoesNotRepeatSatisfiedPowerCommand() async throws {
+        let records = SpeakerRecordStore(defaults: makeDefaults())
+        let snapshot = speakerSnapshot(status: .powerOn)
+        _ = records.save(host: "192.168.1.60", macAddress: nil, snapshot: snapshot)
+        let speaker = StubSpeaker(snapshots: [.success(snapshot)])
+        let service = SpeakerCommandService(speakerRecords: records) { _ in speaker }
+
+        let confirmation = try await service.setPower(on: true)
+        let powerCommands = await speaker.recordedPowerCommands()
+
+        XCTAssertFalse(confirmation.changed)
+        XCTAssertEqual(powerCommands, [])
+    }
+
+    func testSpeakerCommandServiceReportsMissingWakeAddress() async throws {
+        let records = SpeakerRecordStore(defaults: makeDefaults())
+        let snapshot = speakerSnapshot(status: .standby)
+        _ = records.save(host: "192.168.1.60", macAddress: nil, snapshot: snapshot)
+        let speaker = StubSpeaker(snapshots: [.failure(.unreachable)])
+        let timing = SpeakerCommandTimingPolicy(
+            readAttempts: 1,
+            readRetryDelay: .zero,
+            wakePollingDelays: [.zero]
+        )
+        let service = SpeakerCommandService(
+            speakerRecords: records,
+            clientFactory: { _ in speaker },
+            timing: timing,
+            sleep: { _ in }
+        )
+
+        do {
+            _ = try await service.setPower(on: true)
+            XCTFail("Expected a missing hardware-address error")
+        } catch {
+            XCTAssertEqual(error as? SpeakerCommandError, .wakeUnavailable)
+        }
     }
 
     func testBonjourPolicyDenialIsRecognized() {
@@ -332,6 +581,22 @@ final class MobileBehaviorTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
         return defaults
+    }
+
+    private func speakerSnapshot(
+        status: SpeakerStatus = .powerOn,
+        source: SpeakerSource = .wifi,
+        volume: Int = 35,
+        name: String = "Living Room",
+        model: String = "LS60"
+    ) -> SpeakerSnapshot {
+        SpeakerSnapshot(
+            status: status,
+            source: source,
+            volume: volume,
+            name: name,
+            model: model
+        )
     }
 
     private func waitUntil(
@@ -358,8 +623,9 @@ private actor StubSpeaker: KEFSpeakerClient {
         case failure(StubFailure)
     }
 
-    nonisolated let host = "192.168.1.99"
+    nonisolated let host: String
     private var snapshots: [SnapshotResult]
+    private var snapshotReads = 0
     private let playerState: PlayerState
     private var volumes: [Int] = []
     private var sources: [SpeakerSource] = []
@@ -367,14 +633,17 @@ private actor StubSpeaker: KEFSpeakerClient {
     private var playbackCommands: [String] = []
 
     init(
+        host: String = "192.168.1.99",
         snapshots: [SnapshotResult],
         playerState: PlayerState = PlayerState(isPlaying: false, nowPlaying: NowPlayingInfo())
     ) {
+        self.host = host
         self.snapshots = snapshots
         self.playerState = playerState
     }
 
     func getSnapshot() async throws -> SpeakerSnapshot {
+        snapshotReads += 1
         guard !snapshots.isEmpty else {
             return SpeakerSnapshot(status: .powerOn, source: .wifi, volume: 30, name: "Test", model: "LS60")
         }
@@ -429,4 +698,20 @@ private actor StubSpeaker: KEFSpeakerClient {
     func recordedSources() -> [SpeakerSource] { sources }
     func recordedPowerCommands() -> [Bool] { powerCommands }
     func recordedPlaybackCommands() -> [String] { playbackCommands }
+    func snapshotReadCount() -> Int { snapshotReads }
+}
+
+private final class WakeRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedAddresses: [String] = []
+
+    var addresses: [String] {
+        lock.withLock { recordedAddresses }
+    }
+
+    func record(_ address: String) {
+        lock.withLock {
+            recordedAddresses.append(address)
+        }
+    }
 }

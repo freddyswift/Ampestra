@@ -84,13 +84,8 @@ struct VolumeControlCard: View {
         .disabled(!store.canControlSpeaker)
     }
 
-    @ViewBuilder
     private var volumeButtons: some View {
-        if #available(iOS 26.0, *) {
-            GlassEffectContainer(spacing: 18) {
-                volumeButtonsContent
-            }
-        } else {
+        GlassEffectContainer(spacing: 18) {
             volumeButtonsContent
         }
     }
@@ -390,14 +385,8 @@ struct SpeakerActionsRow: View {
     let compact: Bool
 
     var body: some View {
-        Group {
-            if #available(iOS 26.0, *) {
-                GlassEffectContainer(spacing: 12) {
-                    actionTiles
-                }
-            } else {
-                actionTiles
-            }
+        GlassEffectContainer(spacing: 12) {
+            actionTiles
         }
     }
 

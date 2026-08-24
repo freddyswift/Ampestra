@@ -1,3 +1,4 @@
+import AppIntents
 import Combine
 import Foundation
 import KEFCore
@@ -49,6 +50,7 @@ final class RemoteStore: ObservableObject {
     let hardwareButtons: HardwareVolumeButtonController
 
     private let defaults: UserDefaults
+    private let speakerRecords: SpeakerRecordStore
     private let clientFactory: ClientFactory
     private let reconnectPolicy: ReconnectPolicy
     private let pollingInterval: Duration
@@ -68,6 +70,7 @@ final class RemoteStore: ObservableObject {
 
     init(
         defaults: UserDefaults = .standard,
+        speakerRecords: SpeakerRecordStore? = nil,
         discovery: KEFDiscovery? = nil,
         hardwareButtons: HardwareVolumeButtonController? = nil,
         reconnectPolicy: ReconnectPolicy = ReconnectPolicy(),
@@ -77,6 +80,7 @@ final class RemoteStore: ObservableObject {
         clientFactory: @escaping ClientFactory = { KEFSpeakerAPI(host: $0) }
     ) {
         self.defaults = defaults
+        self.speakerRecords = speakerRecords ?? SpeakerRecordStore(defaults: defaults)
         self.discovery = discovery ?? KEFDiscovery()
         self.hardwareButtons = hardwareButtons ?? HardwareVolumeButtonController()
         self.reconnectPolicy = reconnectPolicy
@@ -134,7 +138,7 @@ final class RemoteStore: ObservableObject {
     }
 
     var hasConfiguredSpeaker: Bool {
-        currentHost != nil || normalizedSavedHost != nil || isDemoMode
+        currentHost != nil || savedSpeaker != nil || isDemoMode
     }
 
     var canControlSpeaker: Bool {
@@ -180,8 +184,8 @@ final class RemoteStore: ObservableObject {
                 refresh(using: speaker)
                 beginPolling(using: speaker)
                 updateHardwareButtonCapture()
-            } else if let host = currentHost ?? normalizedSavedHost {
-                connect(to: host, macAddress: defaults.string(forKey: SpeakerPreferenceKeys.savedMACAddress))
+            } else if let host = currentHost ?? savedSpeaker?.host {
+                connect(to: host, macAddress: savedSpeaker?.macAddress)
             }
         } else {
             connectionGeneration += 1
@@ -255,13 +259,13 @@ final class RemoteStore: ObservableObject {
                 self.apply(snapshot)
                 self.connectionState = .connected
                 self.manualHost = host
-                self.defaults.set(host, forKey: SpeakerPreferenceKeys.savedHost)
                 self.defaults.set(host, forKey: SpeakerPreferenceKeys.manualHost)
-                if let macAddress {
-                    self.defaults.set(macAddress, forKey: SpeakerPreferenceKeys.savedMACAddress)
-                } else {
-                    self.defaults.removeObject(forKey: SpeakerPreferenceKeys.savedMACAddress)
-                }
+                self.speakerRecords.save(
+                    host: host,
+                    macAddress: macAddress,
+                    snapshot: snapshot
+                )
+                AmpestraShortcuts.updateAppShortcutParameters()
                 self.beginPolling(using: candidate)
                 self.updateHardwareButtonCapture()
                 self.showNotice("Connected to \(snapshot.name)")
@@ -279,8 +283,11 @@ final class RemoteStore: ObservableObject {
     }
 
     func reconnectNow() {
-        guard let host = currentHost ?? normalizedSavedHost else { return }
-        connect(to: host, macAddress: speakerMACAddress ?? defaults.string(forKey: SpeakerPreferenceKeys.savedMACAddress))
+        guard let host = currentHost ?? savedSpeaker?.host else { return }
+        connect(
+            to: host,
+            macAddress: speakerMACAddress ?? savedSpeaker?.macAddress
+        )
     }
 
     func disconnect(forget: Bool = false) {
@@ -301,10 +308,10 @@ final class RemoteStore: ObservableObject {
         hardwareButtons.stop()
 
         if forget {
-            defaults.removeObject(forKey: SpeakerPreferenceKeys.savedHost)
-            defaults.removeObject(forKey: SpeakerPreferenceKeys.savedMACAddress)
+            speakerRecords.removeAll()
             manualHost = ""
             defaults.removeObject(forKey: SpeakerPreferenceKeys.manualHost)
+            AmpestraShortcuts.updateAppShortcutParameters()
         }
     }
 
@@ -470,9 +477,8 @@ final class RemoteStore: ObservableObject {
         updateHardwareButtonCapture()
     }
 
-    private var normalizedSavedHost: String? {
-        guard let savedHost = defaults.string(forKey: SpeakerPreferenceKeys.savedHost) else { return nil }
-        return ManualHostValidator.normalizedHost(savedHost)
+    private var savedSpeaker: SavedSpeaker? {
+        speakerRecords.defaultSpeaker()
     }
 
     private func beginPolling(using speaker: KEFSpeakerClient) {

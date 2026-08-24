@@ -1,3 +1,4 @@
+import AppIntents
 import KEFCore
 import SwiftUI
 import UIKit
@@ -8,6 +9,7 @@ struct MobileSettingsView: View {
     @ObservedObject var store: RemoteStore
     @ObservedObject private var hardwareButtons: HardwareVolumeButtonController
     @State private var showingForgetConfirmation = false
+    @State private var showingSiriTip = true
 
     let changeSpeaker: () -> Void
 
@@ -22,6 +24,9 @@ struct MobileSettingsView: View {
             Form {
                 speakerSection
                 physicalButtonsSection
+                if store.hasConfiguredSpeaker {
+                    siriSection
+                }
                 moreSection
             }
             .formStyle(.grouped)
@@ -126,11 +131,22 @@ struct MobileSettingsView: View {
                 actionLabel("App permissions", systemImage: "arrow.up.forward.app")
             }
 
-            Link(destination: URL(string: "shortcuts://")!) {
-                linkLabel("Shortcuts", systemImage: "command")
-            }
         } header: {
             Text("More")
+        }
+    }
+
+    private var siriSection: some View {
+        Section {
+            SiriTipView(intent: SetSpeakerPowerIntent(), isVisible: $showingSiriTip)
+                .siriTipViewStyle(.automatic)
+
+            ShortcutsLink()
+                .shortcutsLinkStyle(.automaticOutline)
+        } header: {
+            Text("Siri & Shortcuts")
+        } footer: {
+            Text("Speaker control stays on your local network, including when Siri runs Ampestra in the background.")
         }
     }
 
@@ -145,17 +161,6 @@ struct MobileSettingsView: View {
     ) -> some View {
         Label(title, systemImage: systemImage)
             .foregroundStyle(color)
-    }
-
-    private func linkLabel(_ title: String, systemImage: String) -> some View {
-        HStack {
-            Label(title, systemImage: systemImage)
-            Spacer()
-            Image(systemName: "arrow.up.right")
-                .font(.caption.weight(.semibold))
-        }
-        .foregroundStyle(AmpestraTheme.accent)
-        .contentShape(Rectangle())
     }
 
     private func confirmForgetSpeaker() {

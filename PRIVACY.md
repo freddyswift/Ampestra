@@ -28,6 +28,12 @@ Ampestra and the selected speaker on the local network. Compatible KEF speakers
 expose a local HTTP control API; that protocol is not encrypted by Ampestra.
 Use Ampestra only on a network you trust.
 
+When a command starts through Siri or Shortcuts, iOS provides the selected
+action and parameters to Ampestra, which then contacts the speaker locally.
+Siri request processing is controlled by the user's Apple and Siri settings
+and is subject to Apple's privacy terms; Ampestra does not send Siri requests
+to a developer-operated service.
+
 Signed macOS release builds use Sparkle to check the public GitHub Releases
 appcast. GitHub and the network carrying that request may receive ordinary
 request metadata such as an IP address and user agent under their own policies.

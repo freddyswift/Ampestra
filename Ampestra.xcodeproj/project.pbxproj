@@ -21,6 +21,8 @@
 		6301999EC74E25349FB37F37 /* KEFSpeakerAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 431F4E5BF00CE5207AA98D51 /* KEFSpeakerAPI.swift */; };
 		67C28F97837B63BD13812BDA /* KEFCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0E72489372120B720B412E43 /* KEFCore.framework */; };
 		7D6A51F059AA280705C947E4 /* RemoteSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47AA12540673F101FD5D8791 /* RemoteSupport.swift */; };
+		8B4A2CA4FC8D1D3F2DC4BDB7 /* SpeakerEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = F39149BBD64FAD170E858D71 /* SpeakerEntity.swift */; };
+		8BBFD7E84C24098D532C1402 /* SavedSpeakerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3B55187793804A45C3BE2BB /* SavedSpeakerStore.swift */; };
 		8FFB2BDC3708CD214AEEC261 /* DashboardComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 006D6205B063C65C53B54164 /* DashboardComponents.swift */; };
 		966792F5108E11FD0359916C /* RemoteComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80AE7F2CD097AB14F96EB674 /* RemoteComponents.swift */; };
 		BD065058CF3DFDE828016FA4 /* KEFCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0E72489372120B720B412E43 /* KEFCore.framework */; };
@@ -111,6 +113,8 @@
 		C6F6E42D05DDE9FDA949A05D /* SpeakerPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerPreferences.swift; sourceTree = "<group>"; };
 		CA29EF749FCE435255F0B2F5 /* ConnectionComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionComponents.swift; sourceTree = "<group>"; };
 		CF4B7FDAB797B7F9425F5488 /* VolumePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumePolicy.swift; sourceTree = "<group>"; };
+		D3B55187793804A45C3BE2BB /* SavedSpeakerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedSpeakerStore.swift; sourceTree = "<group>"; };
+		F39149BBD64FAD170E858D71 /* SpeakerEntity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerEntity.swift; sourceTree = "<group>"; };
 		F5F43D749384EA517EA229E5 /* MobileSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSettingsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -198,7 +202,9 @@
 				511C75AA572E2682508A691B /* RemoteStore.swift */,
 				47AA12540673F101FD5D8791 /* RemoteSupport.swift */,
 				765E75417F77A6BC30A45FF2 /* RemoteView.swift */,
+				D3B55187793804A45C3BE2BB /* SavedSpeakerStore.swift */,
 				BE59CEC7AC550DB955B3C906 /* SpeakerCommandService.swift */,
+				F39149BBD64FAD170E858D71 /* SpeakerEntity.swift */,
 				096CF648E44FCF5ECA67EAEE /* SpeakerIntents.swift */,
 				C6F6E42D05DDE9FDA949A05D /* SpeakerPreferences.swift */,
 			);
@@ -347,7 +353,9 @@
 				E2DA6A55855D7637DDE13CCB /* RemoteStore.swift in Sources */,
 				7D6A51F059AA280705C947E4 /* RemoteSupport.swift in Sources */,
 				55229DA3071EDA63F8AA7F95 /* RemoteView.swift in Sources */,
+				8BBFD7E84C24098D532C1402 /* SavedSpeakerStore.swift in Sources */,
 				F7EE5358EF8F21CAC7696EC6 /* SpeakerCommandService.swift in Sources */,
+				8B4A2CA4FC8D1D3F2DC4BDB7 /* SpeakerEntity.swift in Sources */,
 				E51B33E42C2531F0CA840F99 /* SpeakerIntents.swift in Sources */,
 				C3A15D3DA57EDD100E81519E /* SpeakerPreferences.swift in Sources */,
 			);
@@ -510,7 +518,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -643,7 +651,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

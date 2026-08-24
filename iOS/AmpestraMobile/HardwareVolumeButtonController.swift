@@ -22,7 +22,8 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
         qos: .userInitiated
     )
     private var observation: NSKeyValueObservation?
-    private var interruptionObserver: NSObjectProtocol?
+    private var deactivationObserver: NotificationCenter.ObservationToken?
+    private var resumptionObserver: NotificationCenter.ObservationToken?
     private var recenterTask: Task<Void, Never>?
     private var interpreter = OutputVolumeChangeInterpreter(initialVolume: 0.5)
     private weak var volumeSlider: UISlider?
@@ -37,21 +38,27 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
         self.audioSession = audioSession
         super.init()
 
-        interruptionObserver = NotificationCenter.default.addObserver(
-            forName: AVAudioSession.interruptionNotification,
-            object: audioSession,
-            queue: .main
-        ) { [weak self] notification in
-            Task { @MainActor [weak self] in
-                self?.handleInterruption(notification)
-            }
+        deactivationObserver = NotificationCenter.default.addObserver(
+            of: audioSession,
+            for: .didBecomeInactive
+        ) { [weak self] message in
+            self?.handleDeactivation(message.deactivationResult)
+        }
+        resumptionObserver = NotificationCenter.default.addObserver(
+            of: audioSession,
+            for: .resumptionRecommendation
+        ) { [weak self] message in
+            self?.handleResumption(message.recommendation)
         }
     }
 
     deinit {
         observation?.invalidate()
-        if let interruptionObserver {
-            NotificationCenter.default.removeObserver(interruptionObserver)
+        if let deactivationObserver {
+            NotificationCenter.default.removeObserver(deactivationObserver)
+        }
+        if let resumptionObserver {
+            NotificationCenter.default.removeObserver(resumptionObserver)
         }
     }
 
@@ -209,28 +216,34 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
         volumeSlider.sendActions(for: .valueChanged)
     }
 
-    private func handleInterruption(_ notification: Notification) {
-        guard let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
-              let type = AVAudioSession.InterruptionType(rawValue: rawType) else {
-            return
-        }
-
-        switch type {
-        case .began:
+    private func handleDeactivation(_ result: AVAudioSession.DeactivationResult) {
+        switch result {
+        case .systemInterruption:
             activationRequestID &+= 1
             isActivating = false
             isInterrupted = true
             isCapturing = false
             recenterTask?.cancel()
-        case .ended:
-            guard wantsCapture else {
-                isInterrupted = false
-                return
-            }
-            guard !isActivating else { return }
+        case .appDeactivated:
+            break
+        @unknown default:
+            break
+        }
+    }
+
+    private func handleResumption(_ recommendation: AVAudioSession.ResumptionRecommendation) {
+        guard isInterrupted else { return }
+
+        switch recommendation {
+        case .shouldResume:
+            guard wantsCapture, !isActivating else { return }
             activateAudioSession(
                 failureMessage: "Physical volume buttons could not resume"
             )
+        case .shouldNotResume:
+            // Keep capture suspended until the system sends a later recommendation
+            // or the user explicitly restarts it.
+            break
         @unknown default:
             break
         }

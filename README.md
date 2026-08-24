@@ -23,12 +23,28 @@ and provides native controls tailored to iPhone and the macOS menu bar.
 5. Choose **Find speakers**, or enter the speaker's private IP address from
    your router or KEF Connect.
 
-The iOS target requires iOS 17 or later. While the app is in the foreground,
+The iOS target requires iOS 27 or later. While the app is in the foreground,
 its optional physical-button mode observes iPhone output-volume changes and
 translates them into configurable speaker-volume steps. Capture stops when the
 app leaves the foreground. By default the previous phone volume is restored;
 an opt-in setting can instead mute iPhone media volume when the app enters the
 background.
+
+### Siri and Shortcuts
+
+After connecting a speaker once, open **Settings → Siri & Shortcuts** in
+Ampestra to see the native Siri tip or open the Shortcuts gallery. Ampestra
+provides background actions for power, source, exact or stepped volume,
+mute/unmute, playback, and speaker status. For example:
+
+- “Turn speakers on with Ampestra”
+- “Set speakers to TV with Ampestra”
+- “Turn speakers down with Ampestra”
+- “Get speaker status with Ampestra”
+
+Siri asks for any value that is not present in the phrase. Commands still go
+directly from the iPhone to the saved speaker over the local network. Power-on
+can fall back to Wake-on-LAN when Ampestra learned the speaker's MAC address.
 
 If you edit `project.yml`, regenerate the checked-in Xcode project with:
 
@@ -51,7 +67,7 @@ Open the DMG, then drag `Ampestra.app` into `Applications`.
 
 ## Compatibility
 
-The iPhone app supports iOS 17 or later. The menu bar app supports macOS 14 or
+The iPhone app supports iOS 27 or later. The menu bar app supports macOS 14 or
 later. CI builds and tests the macOS app on the oldest supported macOS runner
 and on the current macOS 26 release environment. If you use macOS 14 or 15,
 please report any launch, permissions, networking, or UI issues.
@@ -69,6 +85,8 @@ The original LS50 Wireless and LSX gen 1 are not supported.
 - Finds speakers with Bonjour auto-discovery
 - Supports manual local host/IP fallback
 - Controls power, source, volume, and playback
+- Provides native iOS 27 Siri and Shortcuts actions that can run in the
+  background and address saved speakers by name
 - Provides an iPhone remote with large volume controls and a foreground-only
   physical volume-button mode
 - Shows now-playing metadata and previous/play-pause/next controls for WiFi and
@@ -163,8 +181,8 @@ bundled credentials.
 The app uses Bonjour to discover compatible speakers on the local network,
 connects to speakers over their local HTTP API, and may read now-playing
 metadata from the connected speaker. Manual speaker hosts, the last connected
-host, and app settings are stored locally in macOS app preferences. Discovered
-MAC addresses are used only for Wake-on-LAN.
+host, stable saved-speaker IDs, and app settings are stored locally in the
+app's preferences. Discovered MAC addresses are used only for Wake-on-LAN.
 
 Signed release builds use Sparkle to check GitHub Releases for app updates.
 

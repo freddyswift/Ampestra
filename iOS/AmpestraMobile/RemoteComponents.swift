@@ -41,32 +41,18 @@ extension View {
 
     @ViewBuilder
     func ampestraGlassButton(prominent: Bool = false) -> some View {
-        if #available(iOS 26.0, *) {
-            if prominent {
-                self.buttonStyle(.glassProminent)
-            } else {
-                self.buttonStyle(.glass)
-            }
-        } else if prominent {
-            self.buttonStyle(.borderedProminent)
+        if prominent {
+            self.buttonStyle(.glassProminent)
         } else {
-            self.buttonStyle(.bordered)
+            self.buttonStyle(.glass)
         }
     }
 
-    @ViewBuilder
     func ampestraGlassControl(cornerRadius: CGFloat = 20) -> some View {
-        if #available(iOS 26.0, *) {
-            self.glassEffect(
-                .regular.interactive(),
-                in: .rect(cornerRadius: cornerRadius)
-            )
-        } else {
-            self.background(
-                .regularMaterial,
-                in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            )
-        }
+        self.glassEffect(
+            .regular.interactive(),
+            in: .rect(cornerRadius: cornerRadius)
+        )
     }
 }
 
@@ -118,18 +104,12 @@ struct NoticeToast: View {
             .transition(.move(edge: .top).combined(with: .opacity))
     }
 
-    @ViewBuilder
     private var toastLabel: some View {
-        let label = Label(message, systemImage: "checkmark.circle.fill")
+        Label(message, systemImage: "checkmark.circle.fill")
             .font(.subheadline.weight(.semibold))
             .padding(.horizontal, 17)
             .padding(.vertical, 11)
-
-        if #available(iOS 26.0, *) {
-            label.glassEffect(.regular, in: .capsule)
-        } else {
-            label.background(.regularMaterial, in: Capsule())
-        }
+            .glassEffect(.regular, in: .capsule)
     }
 }
 

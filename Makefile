@@ -7,12 +7,10 @@ IOS_ARCHIVE_PATH ?= dist/ios/Ampestra.xcarchive
 IOS_EXPORT_PATH ?= dist/ios/upload
 IOS_EXPORT_OPTIONS ?= iOS/ExportOptions-TestFlight.plist
 
-ifeq ($(SDK),26.5)
-export DEVELOPER_DIR := /Applications/Xcode.app/Contents/Developer
-else ifeq ($(SDK),27)
+ifeq ($(SDK),27)
 export DEVELOPER_DIR := /Applications/Xcode-beta.app/Contents/Developer
 else ifneq ($(SDK),)
-$(error SDK must be 26.5 or 27)
+$(error SDK must be 27)
 endif
 
 -include .env.release
@@ -44,7 +42,7 @@ ios-build: ios-project
 	xcodebuild -project Ampestra.xcodeproj -scheme "$(IOS_SCHEME)" -destination "generic/platform=iOS Simulator" build CODE_SIGNING_ALLOWED=NO
 
 ios-test: ios-project
-	xcodebuild -project Ampestra.xcodeproj -scheme "$(IOS_SCHEME)" -destination "platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5" test CODE_SIGNING_ALLOWED=NO
+	xcodebuild -project Ampestra.xcodeproj -scheme "$(IOS_SCHEME)" -destination "platform=iOS Simulator,name=iPhone 17 Pro,OS=27.0" test CODE_SIGNING_ALLOWED=NO
 
 ios-archive: version-check ios-project
 	mkdir -p "$(dir $(IOS_ARCHIVE_PATH))"
