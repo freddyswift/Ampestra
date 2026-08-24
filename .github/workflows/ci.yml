@@ -10,8 +10,25 @@ permissions:
   contents: read
 
 jobs:
+  macos-14-compatibility:
+    name: macOS 14 compatibility
+    runs-on: macos-14
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Show toolchain versions
+        run: |
+          swift --version
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+
+      - name: Build and test on the oldest supported macOS
+        run: make check
+
   macos:
-    name: macOS
+    name: macOS 26 and release smoke test
     runs-on: macos-26
 
     steps:

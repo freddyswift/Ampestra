@@ -5,6 +5,8 @@ struct SpeakerTimingPolicy {
     var autoDiscoveryPollInterval: Duration
     var connectionRetryDelays: [Duration]
     var stateRefreshPollInterval: Duration
+    var stateChangeTimeout: Duration
+    var playbackStateChangeTimeout: Duration
     var pendingVolumeRetention: Duration
     var volumeCommandCoalescingWindow: Duration
     var postVolumeRefreshDelay: Duration
@@ -19,6 +21,8 @@ struct SpeakerTimingPolicy {
         autoDiscoveryPollInterval: .milliseconds(500),
         connectionRetryDelays: [.milliseconds(500), .seconds(1), .seconds(2)],
         stateRefreshPollInterval: .milliseconds(400),
+        stateChangeTimeout: .seconds(8),
+        playbackStateChangeTimeout: .seconds(4),
         pendingVolumeRetention: .seconds(5),
         volumeCommandCoalescingWindow: .milliseconds(80),
         postVolumeRefreshDelay: .milliseconds(400),

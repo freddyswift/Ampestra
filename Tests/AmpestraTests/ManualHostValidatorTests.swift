@@ -11,6 +11,8 @@ final class ManualHostValidatorTests: XCTestCase {
 
     func testRejectsPublicOrMalformedHosts() {
         XCTAssertNil(ManualHostValidator.normalizedHost("8.8.8.8"))
+        XCTAssertNil(ManualHostValidator.normalizedHost("127.0.0.1"))
+        XCTAssertNil(ManualHostValidator.normalizedHost("127.42.0.9"))
         XCTAssertNil(ManualHostValidator.normalizedHost("https://speaker.local"))
         XCTAssertNil(ManualHostValidator.normalizedHost("speaker.local/path"))
         XCTAssertNil(ManualHostValidator.normalizedHost("speaker local"))

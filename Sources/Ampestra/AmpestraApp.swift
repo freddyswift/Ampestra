@@ -41,9 +41,7 @@ struct AmpestraApp: App {
     private var statusItemAccessibilityLabel: String {
         if appState.isConnected {
             let name = appState.speakerName.isEmpty ? "KEF speaker" : appState.speakerName
-            return appState.status == .powerOn
-                ? "\(name), ready"
-                : "\(name), standby"
+            return "\(name), \(appState.status.displayName.lowercased())"
         }
         if appState.isReconnecting {
             return "Ampestra, reconnecting"

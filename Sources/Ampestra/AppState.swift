@@ -816,15 +816,20 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Poll rapidly until the expected condition is met, or timeout.
-    private func waitForState(timeout: Duration = .seconds(8), condition: @escaping () -> Bool) async throws {
-        let deadline = ContinuousClock.now + timeout
-        while ContinuousClock.now < deadline {
+    /// Poll rapidly until the expected condition is met, or throw on timeout.
+    private func waitForState(timeout: Duration, condition: @escaping () -> Bool) async throws {
+        if condition() { return }
+
+        let clock = ContinuousClock()
+        let deadline = clock.now + timeout
+        while clock.now < deadline {
             try Task.checkCancellation()
             try await timing.sleep(timing.stateRefreshPollInterval)
             await refresh()
             if condition() { return }
         }
+
+        throw SpeakerActionError.stateChangeTimedOut
     }
 
     // MARK: - Actions
@@ -953,12 +958,13 @@ final class AppState: ObservableObject {
     }
 
     func setSource(_ newSource: SpeakerSource) {
-        let oldSource = source
         clearPendingVolume()
 
         runBusySpeakerAction { speaker in
             try await speaker.setSource(newSource)
-            try await self.waitForState { self.source == newSource || self.source != oldSource }
+            try await self.waitForState(timeout: self.timing.stateChangeTimeout) {
+                self.source == newSource
+            }
             // Speaker may take a moment to settle the per-source volume
             try await self.timing.sleep(self.timing.sourceVolumeSettleDelay)
             await self.refresh()
@@ -966,15 +972,20 @@ final class AppState: ObservableObject {
     }
 
     func togglePower() {
+        guard status.allowsPowerToggle else { return }
         let wasPoweredOn = status == .powerOn
 
         runBusySpeakerAction { speaker in
             if wasPoweredOn {
                 try await speaker.shutdown()
-                try await self.waitForState { self.status == .standby }
+                try await self.waitForState(timeout: self.timing.stateChangeTimeout) {
+                    self.status == .standby
+                }
             } else {
                 try await speaker.powerOn()
-                try await self.waitForState { self.status == .powerOn }
+                try await self.waitForState(timeout: self.timing.stateChangeTimeout) {
+                    self.status == .powerOn
+                }
             }
         }
     }
@@ -984,7 +995,9 @@ final class AppState: ObservableObject {
 
         runBusySpeakerAction { speaker in
             try await speaker.togglePlayPause()
-            try await self.waitForState(timeout: .seconds(4)) { self.isPlaying != wasPlaying }
+            try await self.waitForState(timeout: self.timing.playbackStateChangeTimeout) {
+                self.isPlaying != wasPlaying
+            }
         }
     }
 

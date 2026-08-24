@@ -115,6 +115,23 @@ final class AppStateMenuUITests: XCTestCase {
         XCTAssertTrue(appState.isConnected)
     }
 
+    func testStateChangeTimeoutSurfacesActionError() async {
+        let speaker = MenuUITestSpeaker()
+        let appState = makeConnectedAppState(speaker: speaker)
+        await waitUntil { appState.isConnected }
+
+        appState.setSource(.tv)
+
+        XCTAssertTrue(appState.isBusy)
+        await waitUntil { !appState.isBusy }
+        XCTAssertEqual(
+            appState.actionError,
+            "The speaker did not confirm the requested change in time."
+        )
+        XCTAssertEqual(appState.source, .wifi)
+        XCTAssertTrue(appState.isConnected)
+    }
+
     func testSteadyStateRefreshDoesNotPublishUnchangedValues() async {
         let speaker = MenuUITestSpeaker()
         let appState = makeConnectedAppState(speaker: speaker)
@@ -241,6 +258,8 @@ private extension SpeakerTimingPolicy {
         autoDiscoveryPollInterval: .seconds(0),
         connectionRetryDelays: [.seconds(0)],
         stateRefreshPollInterval: .seconds(0),
+        stateChangeTimeout: .milliseconds(25),
+        playbackStateChangeTimeout: .milliseconds(25),
         pendingVolumeRetention: .seconds(0),
         volumeCommandCoalescingWindow: .seconds(0),
         postVolumeRefreshDelay: .seconds(0),

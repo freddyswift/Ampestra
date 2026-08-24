@@ -249,14 +249,16 @@ public final class KEFSpeakerAPI: Sendable {
 
         guard entries.count >= 5 else { throw KEFError.invalidResponse }
 
-        let statusRaw = entries[0].string("kefSpeakerStatus") ?? "standby"
+        guard let statusRaw = entries[0].string("kefSpeakerStatus") else {
+            throw KEFError.invalidResponse
+        }
         let sourceRaw = entries[1].string("kefPhysicalSource") ?? "standby"
         let modelRaw = entries[4].string("string_") ?? ""
         let model = Self.normalizedModelName(from: modelRaw)
         modelCache.value = model
 
         return SpeakerSnapshot(
-            status: SpeakerStatus(rawValue: statusRaw) ?? .standby,
+            status: SpeakerStatus(rawValue: statusRaw),
             source: SpeakerSource(rawValue: sourceRaw) ?? .wifi,
             volume: entries[2].int("i32_") ?? 0,
             name: entries[3].string("string_") ?? "KEF Speaker",
@@ -282,8 +284,10 @@ public final class KEFSpeakerAPI: Sendable {
 
     public func getStatus() async throws -> SpeakerStatus {
         let data = try await firstData(path: "settings:/kef/host/speakerStatus")
-        let raw = data.string("kefSpeakerStatus") ?? "standby"
-        return SpeakerStatus(rawValue: raw) ?? .standby
+        guard let raw = data.string("kefSpeakerStatus") else {
+            throw KEFError.invalidResponse
+        }
+        return SpeakerStatus(rawValue: raw)
     }
 
     public func getSource() async throws -> SpeakerSource {

@@ -21,6 +21,33 @@ final class KEFSpeakerAPITests: XCTestCase {
         XCTAssertEqual(request.queryValue("roles"), "value")
     }
 
+    func testGetStatusPreservesSetupAndFirmwareStates() async throws {
+        let (setupAPI, _) = makeAPI { _ in
+            .json(#"[{"kefSpeakerStatus":"networkSetup"}]"#)
+        }
+        let (firmwareAPI, _) = makeAPI { _ in
+            .json(#"[{"kefSpeakerStatus":"firmwareUpgrade"}]"#)
+        }
+
+        let setupStatus = try await setupAPI.getStatus()
+        let firmwareStatus = try await firmwareAPI.getStatus()
+
+        XCTAssertEqual(setupStatus, .networkSetup)
+        XCTAssertEqual(firmwareStatus, .firmwareUpgrade)
+    }
+
+    func testGetStatusPreservesUnknownAPIRawValue() async throws {
+        let (api, _) = makeAPI { _ in
+            .json(#"[{"kefSpeakerStatus":"calibrating"}]"#)
+        }
+
+        let status = try await api.getStatus()
+
+        XCTAssertEqual(status, .unknown("calibrating"))
+        XCTAssertEqual(status.rawValue, "calibrating")
+        XCTAssertEqual(status.displayName, "Unavailable")
+    }
+
     func testSetVolumeUsesGetSetDataForLegacyModel() async throws {
         let (api, recorder) = makeAPI { request in
             switch request.url.path {

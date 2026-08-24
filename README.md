@@ -1,6 +1,44 @@
 # Ampestra
 
-Unofficial macOS menu bar companion for KEF wireless speakers.
+[![CI](https://github.com/freddyswift/Ampestra/actions/workflows/ci.yml/badge.svg)](https://github.com/freddyswift/Ampestra/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/freddyswift/Ampestra)](https://github.com/freddyswift/Ampestra/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+Unofficial iPhone remote and macOS menu bar companion for KEF wireless speakers.
+
+## Why Ampestra?
+
+Ampestra keeps the controls used most often—power, source, speaker volume, and
+playback—one tap or click away without replacing KEF Connect. It communicates
+directly with the speaker on the local network, requires no Ampestra account,
+and provides native controls tailored to iPhone and the macOS menu bar.
+
+## Run on iPhone
+
+1. Open `Ampestra.xcodeproj` in Xcode.
+2. Select the **Ampestra iOS** scheme and your connected iPhone.
+3. In **Signing & Capabilities**, choose your development team if Xcode does
+   not select it automatically.
+4. Press Run, then allow **Local Network** access on the phone.
+5. Choose **Find speakers**, or enter the speaker's private IP address from
+   your router or KEF Connect.
+
+The iOS target requires iOS 17 or later. While the app is in the foreground,
+its optional physical-button mode observes iPhone output-volume changes and
+translates them into configurable speaker-volume steps. Capture stops when the
+app leaves the foreground. By default the previous phone volume is restored;
+an opt-in setting can instead mute iPhone media volume when the app enters the
+background.
+
+If you edit `project.yml`, regenerate the checked-in Xcode project with:
+
+```sh
+make ios-project
+```
+
+Simulator build and test shortcuts are `make ios-build` and `make ios-test`.
+Maintainers can create a signed App Store archive with `make ios-archive`; the
+separate `make ios-upload` command archives and uploads it to App Store Connect.
 
 ## Download
 
@@ -13,8 +51,9 @@ Open the DMG, then drag `Ampestra.app` into `Applications`.
 
 ## Compatibility
 
-Ampestra supports macOS 14 or later. Current development and release
-testing is primarily done on macOS 26 and later; if you use macOS 14 or 15,
+The iPhone app supports iOS 17 or later. The menu bar app supports macOS 14 or
+later. CI builds and tests the macOS app on the oldest supported macOS runner
+and on the current macOS 26 release environment. If you use macOS 14 or 15,
 please report any launch, permissions, networking, or UI issues.
 
 Ampestra works with KEF speakers that expose the local HTTP control API:
@@ -30,15 +69,23 @@ The original LS50 Wireless and LSX gen 1 are not supported.
 - Finds speakers with Bonjour auto-discovery
 - Supports manual local host/IP fallback
 - Controls power, source, volume, and playback
-- Shows now-playing metadata for WiFi and Bluetooth playback
+- Provides an iPhone remote with large volume controls and a foreground-only
+  physical volume-button mode
+- Shows now-playing metadata and previous/play-pause/next controls for WiFi and
+  Bluetooth playback
 - Can route keyboard volume keys to the speaker, or auto-switch them back to macOS when playback is paused
 - Sends Wake-on-LAN when a speaker MAC address is discovered
 
 ## Permissions
 
-Ampestra asks for Local Network access after you choose **Find Speakers**,
+Ampestra asks for Local Network access after you choose **Find Speakers** or
+connect to a manual local address,
 because it cannot discover or control a speaker without that access. It does not
 trigger the prompt merely by launching in the background.
+
+On iPhone, optional physical-button control observes media-output-volume
+changes so side-button presses can be translated into speaker volume commands.
+Ampestra does not request microphone access or record audio.
 
 Keyboard volume-key control is optional. If you choose Auto or KEF mode, macOS
 also asks for broad Input Monitoring and Accessibility privileges. Ampestra
@@ -110,7 +157,8 @@ Maintainer release instructions live in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Privacy
 
-Ampestra does not include analytics, telemetry, or bundled credentials.
+Ampestra does not include analytics, telemetry, advertising, accounts, or
+bundled credentials.
 
 The app uses Bonjour to discover compatible speakers on the local network,
 connects to speakers over their local HTTP API, and may read now-playing
@@ -119,6 +167,34 @@ host, and app settings are stored locally in macOS app preferences. Discovered
 MAC addresses are used only for Wake-on-LAN.
 
 Signed release builds use Sparkle to check GitHub Releases for app updates.
+
+The complete data-flow, local-storage, permission, and update-check disclosures
+are in [PRIVACY.md](PRIVACY.md). Security reporting and the local-network threat
+model are in [SECURITY.md](SECURITY.md).
+
+## Important disclosures
+
+- Ampestra is an independent, unofficial project. It is not affiliated with,
+  authorised by, sponsored by, or endorsed by KEF.
+- Speaker control relies on a local HTTP API exposed by compatible KEF
+  firmware. Firmware changes may alter or remove behaviour without notice.
+- Commands such as power, source, playback, and volume take effect on the
+  selected physical speaker. Confirm the selected speaker and volume before
+  use, particularly on shared networks or high-powered systems.
+- The project is provided under the MIT License without warranty. Compatibility
+  listings describe tested intent, not a guarantee for every firmware or
+  network configuration.
+
+KEF and referenced speaker product names belong to their respective owners and
+are used only to describe interoperability.
+
+## Support
+
+This is a personal project maintained on a best-effort basis. GitHub issues are
+welcome for reproducible bugs, but support, feature work, and response times are
+not guaranteed. Remove private network and playback information before posting
+diagnostics. Report security issues privately according to
+[SECURITY.md](SECURITY.md).
 
 ## Attribution
 

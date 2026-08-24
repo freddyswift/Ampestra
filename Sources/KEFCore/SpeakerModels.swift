@@ -2,10 +2,9 @@ import Foundation
 
 /// A speaker discovered from Bonjour.
 ///
-/// `host` is the value the API client should connect to. It is usually an IPv4
-/// address, but discovery can fall back to a `.local` hostname when IPv4 lookup
-/// fails. `macAddress` is optional because it is learned from RAOP, not the HTTP
-/// control service.
+/// `host` is the `.local` hostname the API client should connect to, allowing
+/// the system resolver to select IPv4 or IPv6. `macAddress` is optional because
+/// it is learned from RAOP, not the HTTP control service.
 public struct DiscoveredSpeaker: Identifiable, Equatable, Hashable, Sendable {
     public let id: String
     public let name: String
@@ -157,11 +156,94 @@ public enum SpeakerSource: String, CaseIterable, Hashable, Identifiable, Sendabl
     ]
 }
 
-/// Minimal power state used by the panel. The KEF API exposes this through the
-/// speaker status endpoint, separate from the selected physical source.
-public enum SpeakerStatus: String, Sendable {
+/// State exposed by the KEF speaker-status endpoint, separate from the selected
+/// physical source. Unknown values are preserved so a new firmware state is
+/// never presented to the user as ordinary standby.
+public enum SpeakerStatus: Hashable, Sendable {
     case powerOn
     case standby
+    case networkSetup
+    case firmwareUpgrade
+    case unknown(String)
+
+    public init(rawValue: String) {
+        switch rawValue {
+        case "powerOn":
+            self = .powerOn
+        case "standby":
+            self = .standby
+        case "networkSetup":
+            self = .networkSetup
+        case "firmwareUpgrade":
+            self = .firmwareUpgrade
+        default:
+            self = .unknown(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .powerOn:
+            "powerOn"
+        case .standby:
+            "standby"
+        case .networkSetup:
+            "networkSetup"
+        case .firmwareUpgrade:
+            "firmwareUpgrade"
+        case .unknown(let value):
+            value
+        }
+    }
+
+    public var displayName: String {
+        switch self {
+        case .powerOn:
+            "On"
+        case .standby:
+            "Standby"
+        case .networkSetup:
+            "Network setup"
+        case .firmwareUpgrade:
+            "Firmware update"
+        case .unknown:
+            "Unavailable"
+        }
+    }
+
+    public var detailText: String {
+        switch self {
+        case .powerOn:
+            "Speaker is ready"
+        case .standby:
+            "Speaker is in standby"
+        case .networkSetup:
+            "Speaker is in network setup"
+        case .firmwareUpgrade:
+            "Speaker is updating firmware"
+        case .unknown(let value):
+            value.isEmpty ? "Speaker status is unavailable" : "Speaker reported: \(value)"
+        }
+    }
+
+    public var systemImage: String {
+        switch self {
+        case .powerOn:
+            "power"
+        case .standby:
+            "moon.stars.fill"
+        case .networkSetup:
+            "wifi.exclamationmark"
+        case .firmwareUpgrade:
+            "arrow.triangle.2.circlepath"
+        case .unknown:
+            "questionmark.circle"
+        }
+    }
+
+    public var allowsPowerToggle: Bool {
+        self == .powerOn || self == .standby
+    }
 }
 
 /// User-facing API errors. Low-level URLSession and decoding errors are mapped

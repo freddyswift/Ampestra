@@ -1,5 +1,31 @@
 # Releasing Ampestra
 
+The iOS and macOS editions use the same marketing version and build number for
+each coordinated Ampestra release. Run `make version-check` before releasing to
+confirm that `project.yml` and the macOS `Info.plist` still agree.
+
+## TestFlight
+
+The iOS project uses automatic signing for team `3VNW72P883`. Create a signed
+archive without uploading it:
+
+```sh
+make ios-archive
+```
+
+After tests and release metadata are ready, archive and upload the build to App
+Store Connect:
+
+```sh
+make ios-upload
+```
+
+The upload uses the Apple developer account configured in Xcode and preserves
+the version and build number declared by the project. App Store Connect requires
+each uploaded build number for a marketing version to be new.
+
+## macOS Sparkle Release
+
 This app uses locally built release artifacts hosted on GitHub Releases:
 
 - `Ampestra-vX.Y.Z.dmg` for people downloading the app

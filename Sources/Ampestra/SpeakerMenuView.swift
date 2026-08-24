@@ -327,14 +327,14 @@ struct SpeakerMenuView: View {
     private var primaryControlsSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 9) {
-                Image(systemName: "power")
+                Image(systemName: appState.status.systemImage)
                     .foregroundStyle(.secondary)
                     .frame(width: 18)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Power")
                         .font(.subheadline.weight(.medium))
-                    Text(appState.status == .powerOn ? "Speaker is ready" : "Speaker is in standby")
+                    Text(appState.status.detailText)
                         .font(.caption)
                         .foregroundStyle(PanelColors.secondaryText)
                 }
@@ -353,7 +353,7 @@ struct SpeakerMenuView: View {
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.small)
-                .disabled(appState.isBusy)
+                .disabled(appState.isBusy || !appState.status.allowsPowerToggle)
             }
             .padding(.horizontal, 2)
             .padding(.vertical, 6)
@@ -456,7 +456,7 @@ struct SpeakerMenuView: View {
             }
             return appState.connectionError == nil ? "Offline" : "Error"
         }
-        return appState.status == .powerOn ? "On" : "Standby"
+        return appState.status.displayName
     }
 
     private var statusBadgeColor: Color {
@@ -466,7 +466,14 @@ struct SpeakerMenuView: View {
             }
             return appState.connectionError == nil && !appState.isReconnecting ? .gray : .orange
         }
-        return appState.status == .powerOn ? .green : .gray
+        switch appState.status {
+        case .powerOn:
+            return .green
+        case .standby:
+            return .gray
+        case .networkSetup, .firmwareUpgrade, .unknown:
+            return .orange
+        }
     }
 
     private var headerTitle: String {

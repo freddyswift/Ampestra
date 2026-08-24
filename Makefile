@@ -2,6 +2,10 @@ CODESIGN_IDENTITY ?= -
 VERSION ?=
 SWIFT ?= ./script/swift.sh
 SDK ?=
+IOS_SCHEME ?= Ampestra iOS
+IOS_ARCHIVE_PATH ?= dist/ios/Ampestra.xcarchive
+IOS_EXPORT_PATH ?= dist/ios/upload
+IOS_EXPORT_OPTIONS ?= iOS/ExportOptions-TestFlight.plist
 
 ifeq ($(SDK),26.5)
 export DEVELOPER_DIR := /Applications/Xcode.app/Contents/Developer
@@ -16,7 +20,7 @@ endif
 export SPARKLE_PUBLIC_ED_KEY
 export NOTARY_PROFILE
 
-.PHONY: build check run dev-reset dev-reset-hard dev-fresh dev-fresh-hard release-build release release-upload release-test release-config sparkle-key notary-profile app install release-package clean
+.PHONY: build check version-check ios-project ios-build ios-test ios-archive ios-upload run dev-reset dev-reset-hard dev-fresh dev-fresh-hard release-build release release-upload release-test release-config sparkle-key notary-profile app install release-package clean
 
 build:
 	$(SWIFT) build
@@ -26,6 +30,29 @@ check:
 	$(SWIFT) test
 	for f in script/*.sh; do bash -n "$$f"; done
 	plutil -lint Sources/Ampestra/Info.plist
+	plutil -lint iOS/AmpestraMobile/Info.plist
+	plutil -lint $(IOS_EXPORT_OPTIONS)
+	$(MAKE) version-check
+
+version-check:
+	./script/check_release_versions.sh
+
+ios-project:
+	xcodegen generate --spec project.yml
+
+ios-build: ios-project
+	xcodebuild -project Ampestra.xcodeproj -scheme "$(IOS_SCHEME)" -destination "generic/platform=iOS Simulator" build CODE_SIGNING_ALLOWED=NO
+
+ios-test: ios-project
+	xcodebuild -project Ampestra.xcodeproj -scheme "$(IOS_SCHEME)" -destination "platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5" test CODE_SIGNING_ALLOWED=NO
+
+ios-archive: version-check ios-project
+	mkdir -p "$(dir $(IOS_ARCHIVE_PATH))"
+	xcodebuild -project Ampestra.xcodeproj -scheme "$(IOS_SCHEME)" -configuration Release -destination "generic/platform=iOS" -archivePath "$(IOS_ARCHIVE_PATH)" -allowProvisioningUpdates clean archive
+
+ios-upload: ios-archive
+	mkdir -p "$(IOS_EXPORT_PATH)"
+	xcodebuild -exportArchive -archivePath "$(IOS_ARCHIVE_PATH)" -exportPath "$(IOS_EXPORT_PATH)" -exportOptionsPlist "$(IOS_EXPORT_OPTIONS)" -allowProvisioningUpdates
 
 run:
 	./script/build_and_run.sh

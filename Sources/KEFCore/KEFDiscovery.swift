@@ -188,11 +188,9 @@ public final class KEFDiscovery: ObservableObject {
         return errorCode == kDNSServiceErr_PolicyDenied
     }
 
-    /// Resolve a Bonjour service to an IPv4 address using dns_sd APIs.
-    ///
-    /// NWConnection's IP resolution can return IPv6-only on some networks,
-    /// so we use DNSServiceResolve to get the actual .local hostname, then
-    /// getaddrinfo to look up the IPv4 address.
+    /// Resolve a Bonjour service to its `.local` hostname using dns_sd APIs.
+    /// URLSession then applies the system's normal IPv4/IPv6 resolution and
+    /// interface selection instead of discovery forcing an IPv4 address.
     private func scheduleServiceResolution(name: String, type: String, domain: String, generation: Int) {
         guard generation == discoveryGeneration else { return }
 
@@ -200,10 +198,7 @@ public final class KEFDiscovery: ObservableObject {
         guard scheduledHTTPServices.insert(id).inserted else { return }
 
         let resolutionTask = Task.detached(priority: .utility) { () -> String? in
-            guard let hostname = Self.resolveServiceHostname(name: name, type: type, domain: domain) else {
-                return nil
-            }
-            return Self.resolveToIPv4(hostname) ?? hostname
+            Self.resolveServiceHostname(name: name, type: type, domain: domain)
         }
 
         Task { @MainActor [weak self] in
@@ -289,28 +284,6 @@ public final class KEFDiscovery: ObservableObject {
         }
 
         return box.value.map(normalizedHostname)
-    }
-
-    /// Use getaddrinfo to resolve a hostname to an IPv4 address.
-    nonisolated static func resolveToIPv4(_ hostname: String) -> String? {
-        var hints = addrinfo()
-        hints.ai_family = AF_INET
-        hints.ai_socktype = SOCK_STREAM
-
-        var result: UnsafeMutablePointer<addrinfo>?
-        guard getaddrinfo(hostname, nil, &hints, &result) == 0, let addr = result else {
-            return nil
-        }
-        defer { freeaddrinfo(result) }
-
-        var buf = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-        guard getnameinfo(
-            addr.pointee.ai_addr, socklen_t(addr.pointee.ai_addrlen),
-            &buf, socklen_t(buf.count),
-            nil, 0, NI_NUMERICHOST
-        ) == 0 else { return nil }
-
-        return String(cString: buf)
     }
 
     public nonisolated static func normalizedHostname(_ hostname: String) -> String {

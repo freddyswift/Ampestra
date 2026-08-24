@@ -47,7 +47,7 @@ public enum ManualHostValidator {
         guard octets.count == 4 else { return false }
 
         switch (octets[0], octets[1]) {
-        case (10, _), (127, _), (169, 254), (172, 16...31), (192, 168):
+        case (10, _), (169, 254), (172, 16...31), (192, 168):
             return true
         default:
             return false
