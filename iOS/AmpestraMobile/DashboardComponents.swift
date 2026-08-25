@@ -4,59 +4,37 @@ import SwiftUI
 struct VolumeControlCard: View {
     @ObservedObject var store: RemoteStore
     let compact: Bool
+    @State private var previousSliderVolume: Int?
 
     private var volumeBinding: Binding<Double> {
         Binding(
             get: { Double(store.volume) },
-            set: { store.previewVolume(Int($0.rounded())) }
+            set: { previewVolume(Int($0.rounded())) }
         )
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Label(
-                    store.isMuted ? "Muted" : "Speaker volume",
-                    systemImage: store.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill"
-                )
-                .font(.headline)
+        VStack(spacing: compact ? 18 : 26) {
+            Spacer(minLength: compact ? 8 : 14)
 
-                Spacer()
+            VStack(spacing: compact ? 2 : 4) {
+                HStack(spacing: 7) {
+                    Image(systemName: store.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
 
-                if store.isAdjustingVolume {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(AmpestraTheme.accentBright)
+                    Text(store.isMuted ? "MUTED" : "SPEAKER VOLUME")
                 }
-            }
+                .font(.caption.weight(.semibold))
+                .tracking(1.1)
+                .foregroundStyle(store.isMuted ? .secondary : AmpestraTheme.accentBright)
 
-            if let nowPlaying = store.nowPlaying {
-                Spacer(minLength: compact ? 6 : 8)
-
-                NowPlayingSummary(
-                    info: nowPlaying,
-                    isPlaying: store.isPlaying,
-                    isBusy: store.isSendingCommand,
+                AnimatedVolumeNumber(
+                    value: store.volume,
                     compact: compact,
-                    previousAction: store.previousTrack,
-                    playPauseAction: store.togglePlayPause,
-                    nextAction: store.nextTrack
+                    emphasizesChange: previousSliderVolume == nil
                 )
+                    .foregroundStyle(store.isMuted ? .secondary : .primary)
+                    .accessibilityLabel("Speaker volume, \(store.volume) percent")
             }
-
-            Spacer(minLength: compact ? 7 : 10)
-
-            VolumeGauge(
-                value: store.volume,
-                isMuted: store.isMuted,
-                diameter: compact ? 104 : 146
-            )
-
-            Spacer(minLength: compact ? 7 : 10)
-
-            volumeButtons
-
-            Spacer(minLength: compact ? 7 : 10)
 
             Slider(
                 value: volumeBinding,
@@ -74,12 +52,21 @@ struct VolumeControlCard: View {
             } onEditingChanged: {
                 volumeEditingChanged($0)
             }
+            .controlSize(compact ? .regular : .large)
             .tint(AmpestraTheme.accent)
+            .frame(maxWidth: 390)
+            .animation(
+                previousSliderVolume == nil ? .smooth(duration: 0.3) : nil,
+                value: store.volume
+            )
             .accessibilityValue("\(store.volume) percent")
+
+            volumeButtons
+
+            Spacer(minLength: compact ? 8 : 14)
         }
-        .frame(maxHeight: .infinity)
-        .padding(compact ? 16 : 20)
-        .ampestraCard(cornerRadius: 28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, compact ? 8 : 14)
         .opacity(store.canControlSpeaker ? 1 : 0.5)
         .disabled(!store.canControlSpeaker)
     }
@@ -91,19 +78,26 @@ struct VolumeControlCard: View {
     }
 
     private var volumeButtonsContent: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: compact ? 10 : 12) {
             volumeButton(systemName: "minus", label: "Volume down") {
                 store.adjustVolume(direction: -1)
             }
 
-            Button(action: store.toggleMute) {
-                Image(systemName: store.isMuted ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                    .font(.system(size: 19, weight: .semibold))
-                    .frame(width: controlDiameter, height: controlDiameter)
+            Button {
+                RemoteHaptics.controlImpact()
+                store.toggleMute()
+            } label: {
+                Label(
+                    store.isMuted ? "Unmute" : "Mute",
+                    systemImage: store.isMuted ? "speaker.wave.2.fill" : "speaker.slash.fill"
+                )
+                .font(.subheadline.weight(.semibold))
+                .frame(width: compact ? 104 : 124, height: controlDiameter)
             }
             .ampestraGlassButton(prominent: true)
-            .buttonBorderShape(.circle)
+            .buttonBorderShape(.capsule)
             .tint(AmpestraTheme.accent)
+            .foregroundStyle(.white)
             .accessibilityLabel(store.isMuted ? "Restore volume" : "Mute")
 
             volumeButton(systemName: "plus", label: "Volume up") {
@@ -117,9 +111,12 @@ struct VolumeControlCard: View {
         label: String,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
+        Button {
+            RemoteHaptics.controlImpact()
+            action()
+        } label: {
             Image(systemName: systemName)
-                .font(.system(size: 18, weight: .semibold))
+                .font(.system(size: 17, weight: .semibold))
                 .frame(width: controlDiameter, height: controlDiameter)
         }
         .ampestraGlassButton()
@@ -128,34 +125,160 @@ struct VolumeControlCard: View {
     }
 
     private func volumeEditingChanged(_ isEditing: Bool) {
-        if !isEditing { store.commitPreviewedVolume() }
+        if isEditing {
+            previousSliderVolume = store.volume
+        } else {
+            previousSliderVolume = nil
+            store.commitPreviewedVolume()
+        }
+    }
+
+    private func previewVolume(_ value: Int) {
+        let previous = previousSliderVolume ?? store.volume
+        if VolumeHapticPolicy.crossesLandmark(from: previous, to: value) {
+            RemoteHaptics.selection()
+        }
+        previousSliderVolume = value
+        store.previewVolume(value)
     }
 
     private var controlDiameter: CGFloat {
-        compact ? 42 : 52
+        compact ? 40 : 48
     }
 }
 
-private struct NowPlayingSummary: View {
-    let info: NowPlayingInfo
-    let isPlaying: Bool
-    let isBusy: Bool
+private struct AnimatedVolumeNumber: View {
+    let value: Int
     let compact: Bool
-    let previousAction: () -> Void
-    let playPauseAction: () -> Void
-    let nextAction: () -> Void
+    let emphasizesChange: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var displayedValue: Int
+    @State private var movesUp = true
+
+    init(value: Int, compact: Bool, emphasizesChange: Bool) {
+        self.value = value
+        self.compact = compact
+        self.emphasizesChange = emphasizesChange
+        _displayedValue = State(initialValue: value)
+    }
 
     var body: some View {
-        VStack(spacing: compact ? 5 : 7) {
-            HStack(spacing: compact ? 9 : 11) {
+        HStack(spacing: 0) {
+            ForEach(digitSlots) { slot in
+                OdometerDigit(
+                    value: slot.value,
+                    fontSize: fontSize,
+                    movesUp: movesUp,
+                    reduceMotion: reduceMotion
+                )
+                .transition(digitInsertionTransition)
+            }
+        }
+        .frame(width: compact ? 150 : 220, height: digitHeight)
+        .clipped()
+        .onChange(of: value) { _, newValue in
+            updateDisplayedValue(to: newValue)
+        }
+    }
+
+    private var digitSlots: [DigitSlot] {
+        let leastSignificantFirst = String(displayedValue)
+            .reversed()
+            .compactMap(\.wholeNumberValue)
+
+        return Array(
+            leastSignificantFirst
+                .enumerated()
+                .map { DigitSlot(id: $0.offset, value: $0.element) }
+                .reversed()
+        )
+    }
+
+    private var digitInsertionTransition: AnyTransition {
+        guard !reduceMotion else { return .identity }
+        return .move(edge: movesUp ? .bottom : .top)
+    }
+
+    private func updateDisplayedValue(to newValue: Int) {
+        guard newValue != displayedValue else { return }
+
+        movesUp = newValue > displayedValue
+        guard emphasizesChange, !reduceMotion else {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                displayedValue = newValue
+            }
+            return
+        }
+
+        withAnimation(.smooth(duration: 0.24)) {
+            displayedValue = newValue
+        }
+    }
+
+    private var fontSize: CGFloat {
+        compact ? 64 : 96
+    }
+
+    private var digitHeight: CGFloat {
+        compact ? 78 : 116
+    }
+
+    private struct DigitSlot: Identifiable {
+        let id: Int
+        let value: Int
+    }
+}
+
+private struct OdometerDigit: View {
+    let value: Int
+    let fontSize: CGFloat
+    let movesUp: Bool
+    let reduceMotion: Bool
+
+    var body: some View {
+        ZStack {
+            Text("\(value)")
+                .font(.system(size: fontSize, weight: .medium, design: .rounded))
+                .monospacedDigit()
+                .id(value)
+                .transition(digitTransition)
+        }
+        .frame(width: fontSize * 0.62, height: fontSize * 1.2)
+        .clipped()
+    }
+
+    private var digitTransition: AnyTransition {
+        guard !reduceMotion else { return .identity }
+
+        return .asymmetric(
+            insertion: .move(edge: movesUp ? .bottom : .top),
+            removal: .move(edge: movesUp ? .top : .bottom)
+        )
+    }
+}
+
+struct PlaybackControlCard: View {
+    @ObservedObject var store: RemoteStore
+    let compact: Bool
+
+    var body: some View {
+        VStack(spacing: compact ? 10 : 14) {
+            HStack(spacing: compact ? 10 : 12) {
                 RemoteIcon(
-                    systemName: "music.note",
-                    size: compact ? 34 : 38
+                    systemName: store.isPlaying ? "waveform" : "music.note",
+                    size: compact ? 38 : 44
                 )
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(info.title ?? "Now Playing")
-                        .font(.subheadline.weight(.semibold))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("NOW PLAYING")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    Text(store.nowPlaying?.title ?? "Current track")
+                        .font(compact ? .subheadline.weight(.semibold) : .headline)
                         .lineLimit(1)
 
                     if let detail {
@@ -168,45 +291,40 @@ private struct NowPlayingSummary: View {
 
                 Spacer(minLength: 6)
 
-                if isBusy {
+                if store.isSendingCommand {
                     ProgressView()
                         .controlSize(.small)
                         .tint(AmpestraTheme.accentBright)
                 }
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(metadataAccessibilityLabel)
 
-            HStack(spacing: compact ? 18 : 24) {
-                transportButton(
-                    title: "Previous track",
-                    systemName: "backward.fill",
-                    action: previousAction
-                )
-                transportButton(
-                    title: isPlaying ? "Pause" : "Play",
-                    systemName: isPlaying ? "pause.fill" : "play.fill",
-                    prominent: true,
-                    action: playPauseAction
-                )
-                transportButton(
-                    title: "Next track",
-                    systemName: "forward.fill",
-                    action: nextAction
-                )
+            GlassEffectContainer(spacing: compact ? 16 : 20) {
+                HStack(spacing: compact ? 16 : 20) {
+                    transportButton(
+                        title: "Previous track",
+                        systemName: "backward.fill",
+                        action: store.previousTrack
+                    )
+                    transportButton(
+                        title: store.isPlaying ? "Pause" : "Play",
+                        systemName: store.isPlaying ? "pause.fill" : "play.fill",
+                        prominent: true,
+                        action: store.togglePlayPause
+                    )
+                    transportButton(
+                        title: "Next track",
+                        systemName: "forward.fill",
+                        action: store.nextTrack
+                    )
+                }
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity)
         }
-        .padding(.horizontal, compact ? 10 : 12)
-        .padding(.vertical, compact ? 8 : 10)
+        .padding(compact ? 14 : 18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            AmpestraTheme.control,
-            in: RoundedRectangle(cornerRadius: 15, style: .continuous)
-        )
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(metadataAccessibilityLabel)
-        .accessibilityAction(named: "Previous track", previousAction)
-        .accessibilityAction(named: isPlaying ? "Pause" : "Play", playPauseAction)
-        .accessibilityAction(named: "Next track", nextAction)
+        .ampestraCard(cornerRadius: 24)
     }
 
     private func transportButton(
@@ -215,113 +333,47 @@ private struct NowPlayingSummary: View {
         prominent: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
+        Button {
+            RemoteHaptics.controlImpact()
+            action()
+        } label: {
             Image(systemName: systemName)
-                .font(.system(size: compact ? 13 : 14, weight: .semibold))
+                .font(.system(size: compact ? 16 : 18, weight: .semibold))
                 .frame(
-                    width: compact ? 34 : 38,
-                    height: compact ? 30 : 34
+                    width: controlDiameter(prominent: prominent),
+                    height: controlDiameter(prominent: prominent)
                 )
-                .background {
-                    if prominent {
-                        Circle().fill(AmpestraTheme.accent)
-                    }
-                }
         }
-        .buttonStyle(.plain)
+        .ampestraGlassButton(prominent: prominent)
+        .buttonBorderShape(.circle)
+        .tint(AmpestraTheme.accent)
         .foregroundStyle(prominent ? Color.white : AmpestraTheme.accentBright)
-        .contentShape(Rectangle())
-        .disabled(isBusy)
-        .opacity(isBusy ? 0.5 : 1)
+        .disabled(store.isSendingCommand || !store.canControlPlayback)
+        .opacity(store.isSendingCommand ? 0.55 : 1)
         .accessibilityLabel(title)
     }
 
+    private func controlDiameter(prominent: Bool) -> CGFloat {
+        if compact { return prominent ? 48 : 42 }
+        return prominent ? 56 : 48
+    }
+
     private var detail: String? {
-        let value = [info.artist, info.album]
+        let value = [store.nowPlaying?.artist, store.nowPlaying?.album]
             .compactMap { $0 }
             .joined(separator: " • ")
         return value.isEmpty ? nil : value
     }
 
     private var metadataAccessibilityLabel: String {
-        let metadata = [info.title, info.artist, info.album]
+        let metadata = [
+            store.nowPlaying?.title,
+            store.nowPlaying?.artist,
+            store.nowPlaying?.album,
+        ]
             .compactMap { $0 }
             .joined(separator: ", ")
-        return "\(isPlaying ? "Playing" : "Paused"), \(metadata)"
-    }
-}
-
-private struct VolumeGauge: View {
-    let value: Int
-    let isMuted: Bool
-    let diameter: CGFloat
-
-    private var progress: CGFloat {
-        CGFloat(min(100, max(0, value))) / 100
-    }
-
-    private var lineWidth: CGFloat {
-        diameter * 0.075
-    }
-
-    var body: some View {
-        ZStack {
-            Circle()
-                .inset(by: lineWidth / 2)
-                .stroke(.quaternary, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-
-            Circle()
-                .inset(by: lineWidth / 2)
-                .trim(from: 0, to: progress)
-                .stroke(
-                    AmpestraTheme.accent,
-                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
-                )
-                .rotationEffect(.degrees(-90))
-                .animation(.snappy(duration: 0.22), value: value)
-
-            if progress > 0.015 {
-                Circle()
-                    .fill(AmpestraTheme.surface)
-                    .frame(width: lineWidth * 1.55, height: lineWidth * 1.55)
-                    .overlay {
-                        Circle()
-                            .stroke(AmpestraTheme.accent, lineWidth: max(2, lineWidth * 0.28))
-                    }
-                    .offset(y: -(diameter - lineWidth) / 2)
-                    .rotationEffect(.degrees(Double(progress * 360)))
-                    .animation(.snappy(duration: 0.22), value: value)
-                    .accessibilityHidden(true)
-            }
-
-            VStack(spacing: 3) {
-                Text("\(value)")
-                    .font(.system(size: diameter * 0.36, weight: .medium, design: .rounded))
-                    .monospacedDigit()
-                    .contentTransition(.numericText(value: Double(value)))
-
-                Image(systemName: isMuted ? "speaker.slash.fill" : volumeSymbol)
-                    .font(.system(size: diameter * 0.105, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(width: diameter, height: diameter)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Speaker volume")
-        .accessibilityValue("\(value) percent")
-    }
-
-    private var volumeSymbol: String {
-        switch value {
-        case 0:
-            "speaker.slash.fill"
-        case 1...32:
-            "speaker.wave.1.fill"
-        case 33...66:
-            "speaker.wave.2.fill"
-        default:
-            "speaker.wave.3.fill"
-        }
+        return "\(store.isPlaying ? "Playing" : "Paused"), \(metadata)"
     }
 }
 
@@ -330,37 +382,54 @@ struct StandbyControlCard: View {
     let compact: Bool
 
     var body: some View {
-        VStack(spacing: compact ? 12 : 18) {
-            Spacer(minLength: 0)
+        VStack(alignment: .leading, spacing: compact ? 14 : 18) {
+            HStack(alignment: .top, spacing: compact ? 12 : 14) {
+                RemoteIcon(
+                    systemName: store.speakerStatus.systemImage,
+                    size: compact ? 42 : 48
+                )
 
-            RemoteIcon(systemName: store.speakerStatus.systemImage, size: compact ? 46 : 58)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(store.speakerStatus.detailText)
+                        .font(compact ? .headline : .title3.weight(.semibold))
 
-            VStack(spacing: 6) {
-                Text(store.speakerStatus.detailText)
-                    .font(.title3.weight(.semibold))
-                Text(guidance)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+                    Text(guidance)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
             }
+            .accessibilityElement(children: .combine)
 
             if store.speakerStatus == .standby {
-                Button(action: store.togglePower) {
-                    Label("Power on", systemImage: "power")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 48)
+                Button {
+                    RemoteHaptics.controlImpact()
+                    store.togglePower()
+                } label: {
+                    HStack(spacing: 9) {
+                        if store.isSendingCommand {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(.white)
+                        } else {
+                            Image(systemName: "power")
+                        }
+
+                        Text(store.isSendingCommand ? "Powering on…" : "Power on")
+                    }
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: compact ? 44 : 48)
                 }
                 .ampestraGlassButton(prominent: true)
                 .buttonBorderShape(.capsule)
                 .tint(AmpestraTheme.accent)
                 .disabled(store.isSendingCommand)
             }
-
-            Spacer(minLength: 0)
         }
-        .frame(maxHeight: .infinity)
-        .padding(compact ? 18 : 24)
+        .padding(compact ? 16 : 20)
         .ampestraCard(cornerRadius: 28)
     }
 
@@ -385,14 +454,17 @@ struct SpeakerActionsRow: View {
     let compact: Bool
 
     var body: some View {
-        GlassEffectContainer(spacing: 12) {
+        GlassEffectContainer(spacing: compact ? 8 : 10) {
             actionTiles
         }
     }
 
     private var actionTiles: some View {
-        HStack(spacing: 12) {
-            Button(action: store.togglePower) {
+        HStack(spacing: compact ? 8 : 10) {
+            Button {
+                RemoteHaptics.controlImpact()
+                store.togglePower()
+            } label: {
                 ControlTileLabel(
                     icon: "power",
                     title: "Power",
@@ -401,12 +473,17 @@ struct SpeakerActionsRow: View {
                     showsMenuIndicator: false
                 )
             }
-            .buttonStyle(.plain)
+            .ampestraGlassButton()
+            .buttonBorderShape(.capsule)
+            .frame(maxWidth: .infinity)
+            .tint(.primary)
             .disabled(store.connectionState != .connected || store.isSendingCommand)
 
             Menu {
                 ForEach(SpeakerSource.inputSources) { source in
                     Button {
+                        guard source != store.source else { return }
+                        RemoteHaptics.selection()
                         store.setSource(source)
                     } label: {
                         Label(source.displayName, systemImage: source.systemImage)
@@ -422,6 +499,9 @@ struct SpeakerActionsRow: View {
                     showsMenuIndicator: true
                 )
             }
+            .ampestraGlassButton()
+            .buttonBorderShape(.capsule)
+            .frame(maxWidth: .infinity)
             .tint(.primary)
             .disabled(!store.canControlSpeaker || store.isSendingCommand)
             .accessibilityLabel("Source, \(store.source.displayName)")
@@ -437,42 +517,33 @@ private struct ControlTileLabel: View {
     let showsMenuIndicator: Bool
 
     var body: some View {
-        Group {
-            if compact {
-                HStack(spacing: 10) {
-                    RemoteIcon(systemName: icon, size: 36)
+        ZStack {
+            labels
 
-                    labels
+            HStack(spacing: 0) {
+                Image(systemName: icon)
+                    .font(.system(size: compact ? 17 : 18, weight: .semibold))
+                    .foregroundStyle(AmpestraTheme.accentBright)
+                    .frame(width: sideSlotWidth)
+                    .accessibilityHidden(true)
 
-                    Spacer(minLength: 2)
-                    menuIndicator
-                }
-                .padding(12)
-            } else {
-                VStack(alignment: .leading, spacing: 15) {
-                    HStack {
-                        RemoteIcon(systemName: icon, size: 40)
-                        Spacer()
-                        menuIndicator
-                    }
+                Spacer(minLength: 0)
 
-                    labels
-                }
-                .padding(16)
+                menuIndicator
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .ampestraGlassControl(cornerRadius: 20)
-        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .padding(.horizontal, compact ? 8 : 10)
+        .frame(maxWidth: .infinity, minHeight: compact ? 40 : 44, alignment: .center)
+        .contentShape(Capsule())
     }
 
     private var labels: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(spacing: 2) {
             Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.primary.opacity(0.68))
             Text(value)
-                .font(.headline)
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
         }
@@ -480,10 +551,18 @@ private struct ControlTileLabel: View {
 
     @ViewBuilder
     private var menuIndicator: some View {
-        if showsMenuIndicator {
-            Image(systemName: "chevron.up.chevron.down")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
+        ZStack {
+            if showsMenuIndicator {
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.primary.opacity(0.5))
+            }
         }
+        .frame(width: sideSlotWidth)
+        .accessibilityHidden(true)
+    }
+
+    private var sideSlotWidth: CGFloat {
+        compact ? 25 : 28
     }
 }

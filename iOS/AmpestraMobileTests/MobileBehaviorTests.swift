@@ -28,6 +28,15 @@ final class MobileBehaviorTests: XCTestCase {
         XCTAssertEqual(atMaximum.direction(for: 0.9375), .down)
     }
 
+    func testVolumeHapticsDetectLandmarksEvenAcrossFastDrags() {
+        XCTAssertTrue(VolumeHapticPolicy.crossesLandmark(from: 49, to: 51))
+        XCTAssertTrue(VolumeHapticPolicy.crossesLandmark(from: 51, to: 49))
+        XCTAssertTrue(VolumeHapticPolicy.crossesLandmark(from: 3, to: 0))
+        XCTAssertTrue(VolumeHapticPolicy.crossesLandmark(from: 98, to: 100))
+        XCTAssertFalse(VolumeHapticPolicy.crossesLandmark(from: 40, to: 42))
+        XCTAssertFalse(VolumeHapticPolicy.crossesLandmark(from: 50, to: 51))
+    }
+
     func testRapidVolumeCommandsCoalesceToLatestValue() async {
         let speaker = StubSpeaker(snapshots: [])
         let dispatcher = VolumeCommandDispatcher(

@@ -22,8 +22,7 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
         qos: .userInitiated
     )
     private var observation: NSKeyValueObservation?
-    private var deactivationObserver: NotificationCenter.ObservationToken?
-    private var resumptionObserver: NotificationCenter.ObservationToken?
+    private var lifecycleMonitor: AudioSessionLifecycleMonitoring?
     private var recenterTask: Task<Void, Never>?
     private var interpreter = OutputVolumeChangeInterpreter(initialVolume: 0.5)
     private weak var volumeSlider: UISlider?
@@ -38,28 +37,13 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
         self.audioSession = audioSession
         super.init()
 
-        deactivationObserver = NotificationCenter.default.addObserver(
-            of: audioSession,
-            for: .didBecomeInactive
-        ) { [weak self] message in
-            self?.handleDeactivation(message.deactivationResult)
-        }
-        resumptionObserver = NotificationCenter.default.addObserver(
-            of: audioSession,
-            for: .resumptionRecommendation
-        ) { [weak self] message in
-            self?.handleResumption(message.recommendation)
+        lifecycleMonitor = makeAudioSessionLifecycleMonitor(audioSession: audioSession) { [weak self] event in
+            self?.handleLifecycleEvent(event)
         }
     }
 
     deinit {
         observation?.invalidate()
-        if let deactivationObserver {
-            NotificationCenter.default.removeObserver(deactivationObserver)
-        }
-        if let resumptionObserver {
-            NotificationCenter.default.removeObserver(resumptionObserver)
-        }
     }
 
     func attach(volumeView: MPVolumeView) {
@@ -216,27 +200,16 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
         volumeSlider.sendActions(for: .valueChanged)
     }
 
-    private func handleDeactivation(_ result: AVAudioSession.DeactivationResult) {
-        switch result {
-        case .systemInterruption:
+    private func handleLifecycleEvent(_ event: AudioSessionLifecycleEvent) {
+        switch event {
+        case .interrupted:
             activationRequestID &+= 1
             isActivating = false
             isInterrupted = true
             isCapturing = false
             recenterTask?.cancel()
-        case .appDeactivated:
-            break
-        @unknown default:
-            break
-        }
-    }
-
-    private func handleResumption(_ recommendation: AVAudioSession.ResumptionRecommendation) {
-        guard isInterrupted else { return }
-
-        switch recommendation {
         case .shouldResume:
-            guard wantsCapture, !isActivating else { return }
+            guard isInterrupted, wantsCapture, !isActivating else { return }
             activateAudioSession(
                 failureMessage: "Physical volume buttons could not resume"
             )
@@ -244,8 +217,130 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
             // Keep capture suspended until the system sends a later recommendation
             // or the user explicitly restarts it.
             break
-        @unknown default:
-            break
+        }
+    }
+}
+
+private enum AudioSessionLifecycleEvent {
+    case interrupted
+    case shouldResume
+    case shouldNotResume
+}
+
+private protocol AudioSessionLifecycleMonitoring: AnyObject {}
+
+@MainActor
+private func makeAudioSessionLifecycleMonitor(
+    audioSession: AVAudioSession,
+    handler: @escaping @MainActor (AudioSessionLifecycleEvent) -> Void
+) -> AudioSessionLifecycleMonitoring {
+    if #available(iOS 27.0, *) {
+        ModernAudioSessionLifecycleMonitor(
+            audioSession: audioSession,
+            handler: handler
+        )
+    } else {
+        LegacyAudioSessionLifecycleMonitor(
+            audioSession: audioSession,
+            handler: handler
+        )
+    }
+}
+
+@available(iOS 27.0, *)
+@MainActor
+private final class ModernAudioSessionLifecycleMonitor: AudioSessionLifecycleMonitoring {
+    private var deactivationObserver: NotificationCenter.ObservationToken?
+    private var resumptionObserver: NotificationCenter.ObservationToken?
+
+    init(
+        audioSession: AVAudioSession,
+        handler: @escaping @MainActor (AudioSessionLifecycleEvent) -> Void
+    ) {
+        deactivationObserver = NotificationCenter.default.addObserver(
+            of: audioSession,
+            for: .didBecomeInactive
+        ) { message in
+            switch message.deactivationResult {
+            case .systemInterruption:
+                handler(.interrupted)
+            case .appDeactivated:
+                break
+            @unknown default:
+                break
+            }
+        }
+        resumptionObserver = NotificationCenter.default.addObserver(
+            of: audioSession,
+            for: .resumptionRecommendation
+        ) { message in
+            switch message.recommendation {
+            case .shouldResume:
+                handler(.shouldResume)
+            case .shouldNotResume:
+                handler(.shouldNotResume)
+            @unknown default:
+                break
+            }
+        }
+    }
+
+    deinit {
+        if let deactivationObserver {
+            NotificationCenter.default.removeObserver(deactivationObserver)
+        }
+        if let resumptionObserver {
+            NotificationCenter.default.removeObserver(resumptionObserver)
+        }
+    }
+}
+
+@MainActor
+private final class LegacyAudioSessionLifecycleMonitor: AudioSessionLifecycleMonitoring {
+    private static let interruptionNotification = Notification.Name(
+        "AVAudioSessionInterruptionNotification"
+    )
+    private static let interruptionTypeKey = "AVAudioSessionInterruptionTypeKey"
+    private static let interruptionOptionKey = "AVAudioSessionInterruptionOptionKey"
+    private static let interruptionEnded: UInt = 0
+    private static let interruptionBegan: UInt = 1
+    private static let shouldResume: UInt = 1
+
+    private var interruptionObserver: NSObjectProtocol?
+
+    init(
+        audioSession: AVAudioSession,
+        handler: @escaping @MainActor (AudioSessionLifecycleEvent) -> Void
+    ) {
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: Self.interruptionNotification,
+            object: audioSession,
+            queue: .main
+        ) { notification in
+            Task { @MainActor in
+                guard let rawType = notification.userInfo?[Self.interruptionTypeKey] as? UInt else {
+                    return
+                }
+
+                switch rawType {
+                case Self.interruptionBegan:
+                    handler(.interrupted)
+                case Self.interruptionEnded:
+                    let rawOptions = notification.userInfo?[Self.interruptionOptionKey] as? UInt ?? 0
+                    let recommendation: AudioSessionLifecycleEvent = rawOptions & Self.shouldResume != 0
+                        ? .shouldResume
+                        : .shouldNotResume
+                    handler(recommendation)
+                default:
+                    break
+                }
+            }
+        }
+    }
+
+    deinit {
+        if let interruptionObserver {
+            NotificationCenter.default.removeObserver(interruptionObserver)
         }
     }
 }

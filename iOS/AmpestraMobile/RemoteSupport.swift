@@ -1,5 +1,35 @@
 import Foundation
 import KEFCore
+import UIKit
+
+@MainActor
+enum RemoteHaptics {
+    static func controlImpact() {
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.prepare()
+        generator.impactOccurred(intensity: 0.72)
+    }
+
+    static func selection() {
+        let generator = UISelectionFeedbackGenerator()
+        generator.prepare()
+        generator.selectionChanged()
+    }
+}
+
+enum VolumeHapticPolicy {
+    private static let landmarks = [0, 50, 100]
+
+    static func crossesLandmark(from previous: Int, to current: Int) -> Bool {
+        guard previous != current else { return false }
+
+        if current > previous {
+            return landmarks.contains { previous < $0 && current >= $0 }
+        }
+
+        return landmarks.contains { previous > $0 && current <= $0 }
+    }
+}
 
 enum SpeakerConnectionState: Equatable {
     case disconnected

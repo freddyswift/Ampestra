@@ -4,26 +4,39 @@ struct SpeakerOverviewCard: View {
     @ObservedObject var store: RemoteStore
     let compact: Bool
     let chooseSpeaker: () -> Void
+    let showSettings: () -> Void
 
     var body: some View {
-        HStack(spacing: compact ? 10 : 14) {
+        HStack(spacing: compact ? 8 : 12) {
             Button(action: chooseSpeaker) {
-                HStack(spacing: compact ? 10 : 14) {
-                    RemoteIcon(systemName: speakerIcon, size: compact ? 40 : 48)
+                HStack(spacing: compact ? 9 : 12) {
+                    RemoteIcon(systemName: speakerIcon, size: compact ? 38 : 44)
 
-                    VStack(alignment: .leading, spacing: 5) {
+                    VStack(alignment: .leading, spacing: compact ? 3 : 4) {
                         Text(store.speakerName)
                             .font(compact ? .headline : .title3.weight(.semibold))
                             .foregroundStyle(.primary)
                             .lineLimit(1)
 
                         HStack(spacing: 7) {
-                            ConnectionDot(state: store.connectionState)
-                            Text(statusText)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
+                            if let notice = store.notice {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(AmpestraTheme.accentBright)
+                                    .accessibilityHidden(true)
+
+                                Text(notice)
+                                    .foregroundStyle(AmpestraTheme.accentBright)
+                            } else {
+                                ConnectionDot(state: store.connectionState)
+
+                                Text(statusText)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
+                        .font(.subheadline)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+                        .contentTransition(.opacity)
                     }
 
                     Spacer(minLength: 4)
@@ -34,29 +47,62 @@ struct SpeakerOverviewCard: View {
             .accessibilityElement(children: .combine)
             .accessibilityHint("Opens speaker connection options")
 
-            if store.connectionState.isWorking {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(AmpestraTheme.accentBright)
-            } else if store.hasConfiguredSpeaker {
-                Button(action: store.refreshNow) {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 15, weight: .semibold))
-                        .frame(width: 34, height: 34)
+            HStack(spacing: compact ? 6 : 8) {
+                if store.connectionState.isWorking {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(AmpestraTheme.accentBright)
+                        .frame(width: 30, height: 30)
+                } else if shouldShowRefresh {
+                    Button(action: refreshSpeaker) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(width: 30, height: 30)
+                    }
+                    .ampestraGlassButton()
+                    .buttonBorderShape(.circle)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(refreshAccessibilityLabel)
+                } else {
+                    if !store.hasConfiguredSpeaker {
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(.tertiary)
+                            .frame(width: 30, height: 30)
+                    }
+                }
+
+                Button(action: showSettings) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 30, height: 30)
                 }
                 .ampestraGlassButton()
                 .buttonBorderShape(.circle)
-                .foregroundStyle(.secondary)
-                .disabled(store.connectionState != .connected)
-                .accessibilityLabel("Refresh speaker status")
-            } else {
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.tertiary)
+                .foregroundStyle(AmpestraTheme.accentBright)
+                .accessibilityLabel("Settings")
             }
         }
-        .padding(compact ? 13 : 18)
+        .padding(.horizontal, compact ? 12 : 15)
+        .padding(.vertical, compact ? 11 : 14)
         .ampestraCard()
+    }
+
+    private var shouldShowRefresh: Bool {
+        guard store.hasConfiguredSpeaker else { return false }
+        return !store.connectionState.isConnected || store.lastError != nil
+    }
+
+    private var refreshAccessibilityLabel: String {
+        store.connectionState.isConnected ? "Refresh speaker status" : "Reconnect to speaker"
+    }
+
+    private func refreshSpeaker() {
+        if store.connectionState.isConnected {
+            store.refreshNow()
+        } else {
+            store.reconnectNow()
+        }
     }
 
     private var speakerIcon: String {
@@ -64,10 +110,23 @@ struct SpeakerOverviewCard: View {
     }
 
     private var statusText: String {
+        if store.connectionState == .connected, store.speakerStatus == .standby {
+            return "Standby"
+        }
+
         var parts = [store.connectionState.title]
-        if !store.speakerModel.isEmpty { parts.append(store.speakerModel) }
-        if store.connectionState == .connected, store.speakerStatus == .standby { parts.append("Standby") }
+        if shouldShowModel { parts.append(store.speakerModel) }
         return parts.joined(separator: " · ")
+    }
+
+    private var shouldShowModel: Bool {
+        let model = normalizedIdentity(store.speakerModel)
+        guard !model.isEmpty else { return false }
+        return !normalizedIdentity(store.speakerName).contains(model)
+    }
+
+    private func normalizedIdentity(_ value: String) -> String {
+        value.lowercased().filter { $0.isLetter || $0.isNumber }
     }
 }
 

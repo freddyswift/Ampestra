@@ -21,7 +21,12 @@ struct RemoteView: View {
     var body: some View {
         NavigationStack {
             GeometryReader { proxy in
-                let compact = proxy.size.height < 690 || proxy.size.width < 370
+                let showsPlayback = store.speakerStatus == .powerOn
+                    && store.hasConfiguredSpeaker
+                    && store.nowPlaying != nil
+                let compact = proxy.size.height < 690
+                    || proxy.size.width < 370
+                    || (showsPlayback && proxy.size.height < 900)
 
                 ZStack {
                     AmpestraBackdrop()
@@ -30,7 +35,8 @@ struct RemoteView: View {
                         SpeakerOverviewCard(
                             store: store,
                             compact: compact,
-                            chooseSpeaker: showConnection
+                            chooseSpeaker: showConnection,
+                            showSettings: showSettings
                         )
 
                         if store.lastError != nil {
@@ -38,42 +44,29 @@ struct RemoteView: View {
                                 .transition(.move(edge: .top).combined(with: .opacity))
                         }
 
+                        if showsPlayback {
+                            PlaybackControlCard(store: store, compact: compact)
+                        }
+
                         primaryControls(compact: compact)
                             .layoutPriority(1)
 
                         if store.speakerStatus == .powerOn, store.hasConfiguredSpeaker {
+                            Spacer(minLength: compact ? 4 : 8)
+
                             SpeakerActionsRow(store: store, compact: compact)
                         } else if !store.hasConfiguredSpeaker {
                             ChooseSpeakerCard(chooseSpeaker: showConnection)
                         }
                     }
-                    .frame(maxWidth: 540, maxHeight: .infinity)
+                    .frame(maxWidth: 540, maxHeight: .infinity, alignment: .top)
                     .padding(.horizontal, compact ? 14 : 18)
                     .padding(.top, compact ? 4 : 8)
                     .padding(.bottom, max(12, proxy.safeAreaInsets.bottom + 8))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                    if let notice = store.notice {
-                        VStack {
-                            NoticeToast(message: notice)
-                                .padding(.top, 8)
-                            Spacer()
-                        }
-                        .padding(.horizontal, 20)
-                        .allowsHitTesting(false)
-                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
             }
-            .navigationTitle("Ampestra")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: showSettings) {
-                        Image(systemName: "gearshape")
-                    }
-                    .accessibilityLabel("Settings")
-                }
-            }
+            .toolbar(.hidden, for: .navigationBar)
         }
         .tint(AmpestraTheme.accent)
         .background(alignment: .topLeading) {
@@ -83,12 +76,14 @@ struct RemoteView: View {
         .onAppear(perform: presentSetupIfNeeded)
         .onChange(of: store.connectionState, connectionStateChanged)
         .animation(.easeInOut(duration: 0.2), value: store.lastError)
+        .animation(.easeInOut(duration: 0.2), value: store.notice)
     }
 
     @ViewBuilder
     private func primaryControls(compact: Bool) -> some View {
         if store.connectionState == .connected, store.speakerStatus != .powerOn {
             StandbyControlCard(store: store, compact: compact)
+                .frame(maxHeight: .infinity)
         } else if store.hasConfiguredSpeaker {
             VolumeControlCard(store: store, compact: compact)
         }

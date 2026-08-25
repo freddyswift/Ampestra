@@ -48,12 +48,6 @@ extension View {
         }
     }
 
-    func ampestraGlassControl(cornerRadius: CGFloat = 20) -> some View {
-        self.glassEffect(
-            .regular.interactive(),
-            in: .rect(cornerRadius: cornerRadius)
-        )
-    }
 }
 
 struct AmpestraMark: View {
@@ -93,23 +87,6 @@ struct ConnectionDot: View {
             .fill(color)
             .frame(width: 8, height: 8)
             .accessibilityHidden(true)
-    }
-}
-
-struct NoticeToast: View {
-    let message: String
-
-    var body: some View {
-        toastLabel
-            .transition(.move(edge: .top).combined(with: .opacity))
-    }
-
-    private var toastLabel: some View {
-        Label(message, systemImage: "checkmark.circle.fill")
-            .font(.subheadline.weight(.semibold))
-            .padding(.horizontal, 17)
-            .padding(.vertical, 11)
-            .glassEffect(.regular, in: .capsule)
     }
 }
 
