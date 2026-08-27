@@ -5,6 +5,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SWIFT="$ROOT_DIR/script/swift.sh"
 APP_DISPLAY_NAME="Ampestra"
 APP_EXECUTABLE="Ampestra"
+PAYLOAD_PRODUCT="AmpestraPayload"
+PAYLOAD_NAME="libAmpestraPayload.dylib"
+source "$ROOT_DIR/script/stable_launcher_ids.sh"
 STAGING_DIR="$ROOT_DIR/dist/production-staging.noindex"
 APP_DIR="$STAGING_DIR/$APP_DISPLAY_NAME.app"
 LEGACY_APP_DIR="$ROOT_DIR/dist/$APP_DISPLAY_NAME.app"
@@ -199,13 +202,12 @@ if [[ "$install_after_build" == true ]] && pgrep -x "$APP_EXECUTABLE" >/dev/null
 fi
 
 echo "Building $APP_DISPLAY_NAME.app from source..."
-"$SWIFT" build -c release
+"$SWIFT" build -c release --product "$PAYLOAD_PRODUCT"
 BIN_DIR="$("$SWIFT" build -c release --show-bin-path)"
 
-# Production executables receive a new Mach-O UUID when rebuilt. A second
-# indexed bundle with the production identifier can make macOS Local Network
-# privacy alternate between identities and interrupt the installed app. Keep
-# release staging out of Spotlight and remove the old indexed staging path.
+# A second indexed bundle with the production identifier can make macOS Local
+# Network privacy alternate between identities and interrupt the installed app.
+# Keep release staging out of Spotlight and remove the old indexed staging path.
 if [[ -d "$LEGACY_APP_DIR" ]]; then
   lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
   if [[ -x "$lsregister" ]]; then
@@ -217,7 +219,10 @@ fi
 rm -rf "$APP_DIR"
 mkdir -p "$CONTENTS_DIR/MacOS"
 cp "$ROOT_DIR/Sources/Ampestra/Info.plist" "$CONTENTS_DIR/Info.plist"
-cp "$BIN_DIR/$APP_EXECUTABLE" "$CONTENTS_DIR/MacOS/$APP_EXECUTABLE"
+LAUNCHER="$("$ROOT_DIR/script/build_stable_launcher.sh" "$APP_EXECUTABLE" "$AMPESTRA_PRODUCTION_LAUNCHER_UUID")"
+cp "$LAUNCHER" "$CONTENTS_DIR/MacOS/$APP_EXECUTABLE"
+mkdir -p "$CONTENTS_DIR/Frameworks"
+cp "$BIN_DIR/$PAYLOAD_NAME" "$CONTENTS_DIR/Frameworks/$PAYLOAD_NAME"
 copy_embedded_frameworks "$BIN_DIR"
 copy_bundle_resources
 configure_release_metadata

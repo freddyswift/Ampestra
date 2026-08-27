@@ -42,4 +42,8 @@ struct SpeakerTimingPolicy {
 
         return connectionRetryDelays[min(attempt, connectionRetryDelays.count - 1)]
     }
+
+    var reconnectRetryDelay: Duration {
+        connectionRetryDelay(afterAttempt: connectionRetryDelays.count)
+    }
 }

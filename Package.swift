@@ -9,7 +9,7 @@ let package = Package(
     ],
     products: [
         .executable(name: "Ampestra", targets: ["AmpestraExecutable"]),
-        .library(name: "AmpestraDevPayload", type: .dynamic, targets: ["Ampestra"]),
+        .library(name: "AmpestraPayload", type: .dynamic, targets: ["Ampestra"]),
         .library(name: "KEFCore", targets: ["KEFCore"]),
     ],
     dependencies: [

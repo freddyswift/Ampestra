@@ -30,7 +30,7 @@ static int payload_path(char *destination, size_t capacity) {
     int written = snprintf(
         destination,
         capacity,
-        "%s/../Frameworks/libAmpestraDevPayload.dylib",
+        "%s/../Frameworks/libAmpestraPayload.dylib",
         resolved_path
     );
     return written > 0 && (size_t)written < capacity;
@@ -39,24 +39,24 @@ static int payload_path(char *destination, size_t capacity) {
 int main(void) {
     char path[PATH_MAX];
     if (!payload_path(path, sizeof(path))) {
-        fputs("Ampestra Dev could not locate its app payload.\n", stderr);
+        fputs("Ampestra could not locate its app payload.\n", stderr);
         return EXIT_FAILURE;
     }
 
     void *payload = dlopen(path, RTLD_NOW | RTLD_LOCAL);
     if (payload == NULL) {
-        fprintf(stderr, "Ampestra Dev could not load its app payload: %s\n", dlerror());
+        fprintf(stderr, "Ampestra could not load its app payload: %s\n", dlerror());
         return EXIT_FAILURE;
     }
 
     dlerror();
     AmpestraEntryPoint entry_point =
-        (AmpestraEntryPoint)dlsym(payload, "AmpestraDevMain");
+        (AmpestraEntryPoint)dlsym(payload, "AmpestraMain");
     const char *symbol_error = dlerror();
     if (symbol_error != NULL || entry_point == NULL) {
         fprintf(
             stderr,
-            "Ampestra Dev payload is missing its entry point: %s\n",
+            "Ampestra payload is missing its entry point: %s\n",
             symbol_error == NULL ? "unknown error" : symbol_error
         );
         dlclose(payload);

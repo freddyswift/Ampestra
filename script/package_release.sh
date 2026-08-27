@@ -9,6 +9,7 @@ APPCAST_ASSET_NAME="sparkle-appcast.xml"
 APP_DIR="$ROOT_DIR/dist/production-staging.noindex/$APP_DISPLAY_NAME.app"
 INFO_PLIST="$ROOT_DIR/Sources/Ampestra/Info.plist"
 DEFAULT_FEED_URL="https://github.com/freddyswift/Ampestra/releases/latest/download/$APPCAST_ASSET_NAME"
+source "$ROOT_DIR/script/stable_launcher_ids.sh"
 
 version="${AMPESTRA_VERSION:-}"
 build_number="${AMPESTRA_BUILD:-}"
@@ -233,6 +234,13 @@ AMPESTRA_BUILD="$build_number" \
 SPARKLE_FEED_URL="$feed_url" \
 SPARKLE_PUBLIC_ED_KEY="$public_ed_key" \
 ./script/install_app.sh --stage-only
+
+launcher_uuid="$(/usr/bin/dwarfdump --uuid "$APP_DIR/Contents/MacOS/$APP_NAME" | awk 'NR == 1 { print $2 }')"
+if [[ "$launcher_uuid" != "$AMPESTRA_PRODUCTION_LAUNCHER_UUID" ]]; then
+  echo "Release launcher UUID changed: expected $AMPESTRA_PRODUCTION_LAUNCHER_UUID, got $launcher_uuid" >&2
+  exit 2
+fi
+echo "Verified stable release launcher UUID $launcher_uuid."
 
 linked_sdk="$(/usr/bin/vtool -show-build "$APP_DIR/Contents/MacOS/$APP_NAME" | awk '/ sdk / { print $2; exit }')"
 linked_sdk_major="${linked_sdk%%.*}"

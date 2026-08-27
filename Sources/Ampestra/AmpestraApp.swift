@@ -56,19 +56,19 @@ struct AmpestraApp: App {
     }
 }
 
-/// Runs the SwiftUI app from either the normal production executable or the
-/// stable development launcher payload.
+/// Runs the SwiftUI app from either the SwiftPM executable or the stable app
+/// bundle launcher payload.
 @MainActor
 public func runAmpestraApp() {
     AmpestraApp.main()
 }
 
-/// C-compatible entry point loaded by the stable development launcher. The
-/// launcher itself never changes when app code is rebuilt, keeping the main
-/// executable UUID used by macOS Local Network privacy stable.
-@_cdecl("AmpestraDevMain")
+/// C-compatible entry point loaded by the stable app bundle launcher. The
+/// launcher itself keeps the main executable UUID used by macOS Local Network
+/// privacy stable while the Swift payload changes between builds.
+@_cdecl("AmpestraMain")
 @MainActor
-public func ampestraDevMain() {
+public func ampestraMain() {
     AmpestraApp.main()
 }
 

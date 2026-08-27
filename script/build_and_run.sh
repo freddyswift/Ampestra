@@ -4,13 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SWIFT="$ROOT_DIR/script/swift.sh"
 BINARY_NAME="Ampestra"
-DEV_PAYLOAD_NAME="libAmpestraDevPayload.dylib"
+PAYLOAD_PRODUCT="AmpestraPayload"
+PAYLOAD_NAME="libAmpestraPayload.dylib"
 BASE_BUNDLE_NAME="Ampestra"
 BASE_BUNDLE_IDENTIFIER="com.freddyswift.ampestra.macos"
-# macOS Local Network privacy includes the main executable UUID in its app
-# identity. Keep the Dev launcher's UUID fixed across payload rebuilds. This is
-# the UUID macOS has cached for the enabled Ampestra Dev Local Network row.
-DEV_LAUNCHER_UUID="5D17FC99-0065-3096-AB78-BD6CEF30EB80"
+source "$ROOT_DIR/script/stable_launcher_ids.sh"
 CONFIGURATION="${CONFIGURATION:-debug}"
 BUILD_VARIANT="${AMPESTRA_BUILD_VARIANT:-dev}"
 SIGNING_IDENTITY="${CODESIGN_IDENTITY:-}"
@@ -71,12 +69,14 @@ case "$BUILD_VARIANT" in
     BUNDLE_NAME="$BASE_BUNDLE_NAME Dev"
     BUNDLE_IDENTIFIER="$BASE_BUNDLE_IDENTIFIER.dev"
     EXECUTABLE_NAME="AmpestraDev"
+    LAUNCHER_UUID="$AMPESTRA_DEV_LAUNCHER_UUID"
     ;;
   prod|production|release)
     IS_DEV_BUILD=false
     BUNDLE_NAME="$BASE_BUNDLE_NAME"
     BUNDLE_IDENTIFIER="$BASE_BUNDLE_IDENTIFIER"
     EXECUTABLE_NAME="$BINARY_NAME"
+    LAUNCHER_UUID="$AMPESTRA_PRODUCTION_LAUNCHER_UUID"
     ;;
   *)
     echo "Unknown AMPESTRA_BUILD_VARIANT: $BUILD_VARIANT" >&2
@@ -166,37 +166,6 @@ copy_bundle_resources() {
   ditto "$ROOT_DIR/THIRD_PARTY_NOTICES.md" "$resources_dir/ThirdPartyNotices.txt"
 }
 
-build_stable_dev_launcher() {
-  local launcher_source="$ROOT_DIR/Support/AmpestraDevLauncher.c"
-  local launcher_dir="$ROOT_DIR/.build/ampestra-dev-launcher"
-  local launcher="$launcher_dir/AmpestraDev"
-  local actual_uuid
-
-  mkdir -p "$launcher_dir"
-  if [[ ! -x "$launcher" || "$launcher_source" -nt "$launcher" ]]; then
-    xcrun clang \
-      -Os \
-      -Wall \
-      -Wextra \
-      -Werror \
-      -mmacosx-version-min=14.0 \
-      "$launcher_source" \
-      -o "$launcher"
-  fi
-
-  # Idempotent, and ensures a deliberately changed configured UUID takes
-  # effect without requiring contributors to delete the cached launcher.
-  "$SWIFT" "$ROOT_DIR/script/set_macho_uuid.swift" "$launcher" "$DEV_LAUNCHER_UUID"
-
-  actual_uuid="$(/usr/bin/dwarfdump --uuid "$launcher" | awk 'NR == 1 { print $2 }')"
-  if [[ "$actual_uuid" != "$DEV_LAUNCHER_UUID" ]]; then
-    echo "Dev launcher UUID changed: expected $DEV_LAUNCHER_UUID, got $actual_uuid" >&2
-    exit 2
-  fi
-
-  echo "$launcher"
-}
-
 codesign_app() {
   if [[ "$SIGNING_IDENTITY" == "-" ]]; then
     # Re-sign all nested Sparkle code with the same ad-hoc identity, then sign
@@ -222,11 +191,7 @@ codesign_app() {
   codesign --verify --deep --strict "$APP_DIR"
 }
 
-if [[ "$IS_DEV_BUILD" == true ]]; then
-  swift_build --product AmpestraDevPayload
-else
-  swift_build --product Ampestra
-fi
+swift_build --product "$PAYLOAD_PRODUCT"
 BIN_DIR="$(swift_build --show-bin-path)"
 
 if [[ "$IS_DEV_BUILD" != true && -d "$LEGACY_APP_DIR" ]]; then
@@ -240,14 +205,10 @@ fi
 rm -rf "$APP_DIR"
 mkdir -p "$CONTENTS_DIR/MacOS"
 cp "$ROOT_DIR/Sources/Ampestra/Info.plist" "$CONTENTS_DIR/Info.plist"
-if [[ "$IS_DEV_BUILD" == true ]]; then
-  DEV_LAUNCHER="$(build_stable_dev_launcher)"
-  cp "$DEV_LAUNCHER" "$CONTENTS_DIR/MacOS/$EXECUTABLE_NAME"
-  mkdir -p "$CONTENTS_DIR/Frameworks"
-  cp "$BIN_DIR/$DEV_PAYLOAD_NAME" "$CONTENTS_DIR/Frameworks/$DEV_PAYLOAD_NAME"
-else
-  cp "$BIN_DIR/$BINARY_NAME" "$CONTENTS_DIR/MacOS/$EXECUTABLE_NAME"
-fi
+LAUNCHER="$("$ROOT_DIR/script/build_stable_launcher.sh" "$EXECUTABLE_NAME" "$LAUNCHER_UUID")"
+cp "$LAUNCHER" "$CONTENTS_DIR/MacOS/$EXECUTABLE_NAME"
+mkdir -p "$CONTENTS_DIR/Frameworks"
+cp "$BIN_DIR/$PAYLOAD_NAME" "$CONTENTS_DIR/Frameworks/$PAYLOAD_NAME"
 copy_embedded_frameworks "$BIN_DIR"
 copy_bundle_resources
 

@@ -438,17 +438,33 @@ final class AppState: ObservableObject {
         discovery.startDiscovery()
         connectionTask = Task { @MainActor in
             var attemptedHosts = Set<String>()
+            let trustedLastConnectedHost = trustedHostForAutoConnection(lastConnectedHost)
+            var nextTrustedHostAttempt: ContinuousClock.Instant?
 
-            if let trustedLastConnectedHost = trustedHostForAutoConnection(lastConnectedHost) {
+            if let trustedLastConnectedHost {
                 attemptedHosts.insert(trustedLastConnectedHost)
                 if await establishConnection(to: trustedLastConnectedHost, retryCount: 2, trustOnSuccess: true) {
                     return
                 }
+                nextTrustedHostAttempt = ContinuousClock.now + timing.reconnectRetryDelay
             }
 
             let deadline = ContinuousClock.now + timing.autoDiscoveryTimeout
             while ContinuousClock.now < deadline {
                 guard !Task.isCancelled else { return }
+
+                if let trustedLastConnectedHost,
+                   let scheduledAttempt = nextTrustedHostAttempt,
+                   ContinuousClock.now >= scheduledAttempt {
+                    if await establishConnection(
+                        to: trustedLastConnectedHost,
+                        retryCount: 1,
+                        trustOnSuccess: true
+                    ) {
+                        return
+                    }
+                    nextTrustedHostAttempt = ContinuousClock.now + timing.reconnectRetryDelay
+                }
 
                 let candidates = trustedAutoConnectionCandidates(from: discovery.speakers)
                     .filter { !attemptedHosts.contains($0) }
@@ -468,9 +484,11 @@ final class AppState: ObservableObject {
             if speaker == nil {
                 updateIfChanged(\.isConnected, false)
                 updateIfChanged(\.isReconnecting, false)
-                updateIfChanged(\.connectionError, discovery.speakers.isEmpty
-                    ? "No KEF speaker found"
-                    : "Choose a discovered speaker to connect")
+                if !needsLocalNetworkAccess {
+                    updateIfChanged(\.connectionError, discovery.speakers.isEmpty
+                        ? "No KEF speaker found"
+                        : "Choose a discovered speaker to connect")
+                }
             }
         }
     }
@@ -648,10 +666,7 @@ final class AppState: ObservableObject {
     }
 
     private func handleLocalNetworkAccessDenied() {
-        connectionTask?.cancel()
-        connectionTask = nil
         updateIfChanged(\.needsLocalNetworkAccess, true)
-        updateIfChanged(\.isReconnecting, false)
         updateIfChanged(
             \.connectionError,
             "macOS reports that Local Network access is blocked, even though System Settings may show it as enabled."

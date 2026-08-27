@@ -160,10 +160,10 @@ macOS does not expose a supported way to reset Local Network access to its
 undetermined state. Development builds therefore keep one stable bundle identity
 instead of creating new identities to manufacture fresh prompts.
 
-The Dev bundle uses a small, fixed main launcher and loads the rebuilt Swift app
-from `Contents/Frameworks`. This keeps the executable UUID used by macOS Local
-Network privacy stable while normal source edits continue to rebuild immediately.
-Production bundles remain ordinary standalone executables.
+Both development and production bundles use a small, fixed main launcher and
+load the rebuilt Swift app from `Contents/Frameworks`. This keeps the executable
+UUID used by macOS Local Network privacy stable across source rebuilds and app
+updates while the versioned Swift payload continues to change normally.
 
 Use the `make` commands or `./script/swift.sh ...` for local SwiftPM work in
 this repository. On some macOS/Xcode beta setups, raw `swift ...` can resolve to

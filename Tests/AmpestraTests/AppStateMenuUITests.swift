@@ -65,6 +65,29 @@ final class AppStateMenuUITests: XCTestCase {
         XCTAssertTrue(appState.hasStartedConnection)
     }
 
+    func testReturningUserKeepsRetryingSavedSpeakerDuringTransientLocalNetworkDenial() async {
+        UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+        let speaker = MenuUITestSpeaker()
+        UserDefaults.standard.set(speaker.host, forKey: "lastConnectedHost")
+        UserDefaults.standard.set(speaker.host, forKey: "trustedSpeakerHosts")
+        speaker.connectionValidationFailuresRemaining = 3
+        speaker.connectionValidationFailure = URLError(.notConnectedToInternet)
+        let appState = AppState(
+            speakerClientFactory: MenuUITestSpeakerFactory(speaker: speaker),
+            timing: .reconnectMenuUITest,
+            startImmediately: false
+        )
+
+        appState.startConnectionForReturningUserIfNeeded()
+        appState.discovery.localNetworkAccessDeniedHandler?()
+
+        await waitUntil { appState.isConnected }
+        XCTAssertEqual(speaker.connectionValidationAttemptCount, 4)
+        XCTAssertEqual(appState.currentHost, speaker.host)
+        XCTAssertFalse(appState.needsLocalNetworkAccess)
+        XCTAssertNil(appState.connectionError)
+    }
+
     func testDiscoveryChangesNotifyAppStateObservers() {
         let appState = AppState(startImmediately: false)
         var notificationCount = 0
@@ -238,6 +261,9 @@ private final class MenuUITestSpeaker: KEFSpeakerClient, @unchecked Sendable {
     )
     var nextTrackError: Error?
     var connectionValidationError: Error?
+    var connectionValidationFailure: Error = URLError(.networkConnectionLost)
+    var connectionValidationFailuresRemaining = 0
+    private(set) var connectionValidationAttemptCount = 0
     var testConnectionResult = true
 
     func getSnapshot() async throws -> SpeakerSnapshot {
@@ -268,6 +294,11 @@ private final class MenuUITestSpeaker: KEFSpeakerClient, @unchecked Sendable {
     func previousTrack() async throws {}
 
     func validateConnection() async throws {
+        connectionValidationAttemptCount += 1
+        if connectionValidationFailuresRemaining > 0 {
+            connectionValidationFailuresRemaining -= 1
+            throw connectionValidationFailure
+        }
         if let connectionValidationError {
             throw connectionValidationError
         }
@@ -277,6 +308,12 @@ private final class MenuUITestSpeaker: KEFSpeakerClient, @unchecked Sendable {
 }
 
 private extension SpeakerTimingPolicy {
+    static var reconnectMenuUITest: SpeakerTimingPolicy {
+        var timing = menuUITest
+        timing.autoDiscoveryTimeout = .milliseconds(50)
+        return timing
+    }
+
     static let menuUITest = SpeakerTimingPolicy(
         autoDiscoveryTimeout: .seconds(0),
         autoDiscoveryPollInterval: .seconds(0),
