@@ -6,7 +6,7 @@ SWIFT="$ROOT_DIR/script/swift.sh"
 APP_NAME="Ampestra"
 APP_DISPLAY_NAME="Ampestra"
 APPCAST_ASSET_NAME="sparkle-appcast.xml"
-APP_DIR="$ROOT_DIR/dist/$APP_DISPLAY_NAME.app"
+APP_DIR="$ROOT_DIR/dist/production-staging.noindex/$APP_DISPLAY_NAME.app"
 INFO_PLIST="$ROOT_DIR/Sources/Ampestra/Info.plist"
 DEFAULT_FEED_URL="https://github.com/freddyswift/Ampestra/releases/latest/download/$APPCAST_ASSET_NAME"
 

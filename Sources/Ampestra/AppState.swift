@@ -76,6 +76,7 @@ final class AppState: ObservableObject {
     private var pendingCommittedVolume: Int?
     private var pendingVolumeResetTask: Task<Void, Never>?
     private var volumeBeforeMediaKeyMute: Int?
+    private var clearsActionErrorAfterHealthyRefresh = false
     private let speakerClientFactory: any KEFSpeakerClientFactory
     private let timing: SpeakerTimingPolicy
     private let volumeCommandCoordinator = VolumeCommandCoordinator()
@@ -527,7 +528,7 @@ final class AppState: ObservableObject {
         volumeBeforeMediaKeyMute = nil
         updateIfChanged(\.isPlaying, false)
         updateIfChanged(\.nowPlaying, nil)
-        updateIfChanged(\.actionError, nil)
+        clearActionError()
         updateIfChanged(\.isBusy, false)
         clearPendingVolume(keepDisplayedVolume: false)
         volumeHUD.hide()
@@ -746,6 +747,7 @@ final class AppState: ObservableObject {
             }
 
             markConnectionHealthy(for: speaker)
+            clearRecoveredNetworkActionError()
         } catch {
             guard self.speaker === speaker else { return }
             if await speaker.testConnection() {
@@ -839,7 +841,7 @@ final class AppState: ObservableObject {
     ) {
         guard let speaker, !isBusy else { return }
 
-        updateIfChanged(\.actionError, nil)
+        clearActionError()
         updateIfChanged(\.isBusy, true)
         busyActionGeneration += 1
         let generation = busyActionGeneration
@@ -858,7 +860,7 @@ final class AppState: ObservableObject {
                 try await action(speaker)
                 try Task.checkCancellation()
                 guard self.speaker === speaker else { return }
-                self.updateIfChanged(\.actionError, nil)
+                self.clearActionError()
             } catch is CancellationError {
                 return
             } catch {
@@ -869,6 +871,7 @@ final class AppState: ObservableObject {
 
     private func handleSpeakerActionError(_ error: Error, for speaker: KEFSpeakerClient) async {
         guard self.speaker === speaker else { return }
+        clearsActionErrorAfterHealthyRefresh = Self.isRecoverableNetworkActionError(error)
         updateIfChanged(\.actionError, error.localizedDescription)
 
         if await speaker.testConnection() {
@@ -887,7 +890,7 @@ final class AppState: ObservableObject {
         let clampedVolume = applyingStepPolicy
             ? volumePolicy.normalizedVolume(newVolume)
             : VolumePolicy.clampedVolume(newVolume)
-        updateIfChanged(\.actionError, nil)
+        clearActionError()
         if clampedVolume > 0 {
             volumeBeforeMediaKeyMute = nil
         }
@@ -920,7 +923,7 @@ final class AppState: ObservableObject {
             timing: timing,
             didSendLatest: { [weak self] speaker in
                 guard let self, self.speaker === speaker else { return }
-                self.updateIfChanged(\.actionError, nil)
+                self.clearActionError()
                 await self.refresh()
             },
             didFailLatest: { [weak self] error, speaker in
@@ -929,6 +932,33 @@ final class AppState: ObservableObject {
                 await self.handleSpeakerActionError(error, for: speaker)
             }
         )
+    }
+
+    private func clearRecoveredNetworkActionError() {
+        guard clearsActionErrorAfterHealthyRefresh else { return }
+        clearActionError()
+    }
+
+    private func clearActionError() {
+        clearsActionErrorAfterHealthyRefresh = false
+        updateIfChanged(\.actionError, nil)
+    }
+
+    private nonisolated static func isRecoverableNetworkActionError(_ error: Error) -> Bool {
+        guard let urlError = error as? URLError else { return false }
+
+        switch urlError.code {
+        case .cannotFindHost,
+             .cannotConnectToHost,
+             .dnsLookupFailed,
+             .networkConnectionLost,
+             .notConnectedToInternet,
+             .resourceUnavailable,
+             .timedOut:
+            return true
+        default:
+            return false
+        }
     }
 
     private func adjustVolume(by delta: Int) {

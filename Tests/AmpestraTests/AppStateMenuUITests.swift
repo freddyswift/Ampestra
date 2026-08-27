@@ -113,6 +113,29 @@ final class AppStateMenuUITests: XCTestCase {
         XCTAssertEqual(appState.actionError, "Next track is unavailable")
         XCTAssertNil(appState.connectionError)
         XCTAssertTrue(appState.isConnected)
+
+        await appState.refresh()
+
+        XCTAssertEqual(appState.actionError, "Next track is unavailable")
+    }
+
+    func testRecoveredNetworkActionFailureClearsAfterHealthySnapshot() async {
+        let speaker = MenuUITestSpeaker()
+        speaker.nextTrackError = URLError(.networkConnectionLost)
+        speaker.testConnectionResult = false
+        let appState = makeConnectedAppState(speaker: speaker)
+        await waitUntil { appState.isConnected }
+
+        appState.nextTrack()
+
+        await waitUntil { !appState.isBusy }
+        XCTAssertNotNil(appState.actionError)
+
+        speaker.testConnectionResult = true
+        await appState.refresh()
+
+        XCTAssertNil(appState.actionError)
+        XCTAssertTrue(appState.isConnected)
     }
 
     func testStateChangeTimeoutSurfacesActionError() async {
@@ -215,6 +238,7 @@ private final class MenuUITestSpeaker: KEFSpeakerClient, @unchecked Sendable {
     )
     var nextTrackError: Error?
     var connectionValidationError: Error?
+    var testConnectionResult = true
 
     func getSnapshot() async throws -> SpeakerSnapshot {
         SpeakerSnapshot(status: .powerOn, source: .wifi, volume: 35, name: "Kitchen", model: "LSXII")
@@ -249,7 +273,7 @@ private final class MenuUITestSpeaker: KEFSpeakerClient, @unchecked Sendable {
         }
     }
 
-    func testConnection() async -> Bool { true }
+    func testConnection() async -> Bool { testConnectionResult }
 }
 
 private extension SpeakerTimingPolicy {

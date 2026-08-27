@@ -152,7 +152,8 @@ Contributor commands:
 - `make run` builds and launches the development app.
 - `make dev-reset` removes the development app and resets its optional keyboard permissions.
 - `make dev-fresh` runs that targeted reset, then rebuilds and launches the development app.
-- `make app` stages `dist/Ampestra.app`.
+- `make app` stages `dist/production-staging.noindex/Ampestra.app` so macOS
+  does not register a second production Local Network identity.
 - `make clean` removes build artifacts.
 
 macOS does not expose a supported way to reset Local Network access to its

@@ -5,7 +5,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SWIFT="$ROOT_DIR/script/swift.sh"
 APP_DISPLAY_NAME="Ampestra"
 APP_EXECUTABLE="Ampestra"
-APP_DIR="$ROOT_DIR/dist/$APP_DISPLAY_NAME.app"
+STAGING_DIR="$ROOT_DIR/dist/production-staging.noindex"
+APP_DIR="$STAGING_DIR/$APP_DISPLAY_NAME.app"
+LEGACY_APP_DIR="$ROOT_DIR/dist/$APP_DISPLAY_NAME.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 INSTALL_DIR="/Applications"
 INSTALL_APP="$INSTALL_DIR/$APP_DISPLAY_NAME.app"
@@ -27,7 +29,7 @@ Builds $APP_DISPLAY_NAME.app from source, installs it into /Applications, and op
 Options:
   --yes         Replace any existing /Applications/$APP_DISPLAY_NAME.app without prompting.
   --no-open     Install the app but do not open it.
-  --stage-only  Build dist/$APP_DISPLAY_NAME.app without installing it.
+  --stage-only  Build dist/production-staging.noindex/$APP_DISPLAY_NAME.app without installing it.
 EOF
 }
 
@@ -199,6 +201,18 @@ fi
 echo "Building $APP_DISPLAY_NAME.app from source..."
 "$SWIFT" build -c release
 BIN_DIR="$("$SWIFT" build -c release --show-bin-path)"
+
+# Production executables receive a new Mach-O UUID when rebuilt. A second
+# indexed bundle with the production identifier can make macOS Local Network
+# privacy alternate between identities and interrupt the installed app. Keep
+# release staging out of Spotlight and remove the old indexed staging path.
+if [[ -d "$LEGACY_APP_DIR" ]]; then
+  lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+  if [[ -x "$lsregister" ]]; then
+    "$lsregister" -u "$LEGACY_APP_DIR" >/dev/null 2>&1 || true
+  fi
+  rm -rf "$LEGACY_APP_DIR"
+fi
 
 rm -rf "$APP_DIR"
 mkdir -p "$CONTENTS_DIR/MacOS"

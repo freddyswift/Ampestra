@@ -106,7 +106,12 @@ if [[ -z "$SIGNING_IDENTITY" ]]; then
   fi
 fi
 
-APP_DIR="$ROOT_DIR/dist/$BUNDLE_NAME.app"
+if [[ "$IS_DEV_BUILD" == true ]]; then
+  APP_DIR="$ROOT_DIR/dist/$BUNDLE_NAME.app"
+else
+  APP_DIR="$ROOT_DIR/dist/production-staging.noindex/$BUNDLE_NAME.app"
+  LEGACY_APP_DIR="$ROOT_DIR/dist/$BUNDLE_NAME.app"
+fi
 CONTENTS_DIR="$APP_DIR/Contents"
 
 cd "$ROOT_DIR"
@@ -223,6 +228,14 @@ else
   swift_build --product Ampestra
 fi
 BIN_DIR="$(swift_build --show-bin-path)"
+
+if [[ "$IS_DEV_BUILD" != true && -d "$LEGACY_APP_DIR" ]]; then
+  lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+  if [[ -x "$lsregister" ]]; then
+    "$lsregister" -u "$LEGACY_APP_DIR" >/dev/null 2>&1 || true
+  fi
+  rm -rf "$LEGACY_APP_DIR"
+fi
 
 rm -rf "$APP_DIR"
 mkdir -p "$CONTENTS_DIR/MacOS"
