@@ -15,7 +15,7 @@ public_ed_key="${SPARKLE_PUBLIC_ED_KEY:-}"
 notary_profile="${NOTARY_PROFILE:-}"
 feed_url="${SPARKLE_FEED_URL:-}"
 download_url_prefix="${SPARKLE_DOWNLOAD_URL_PREFIX:-}"
-release_notes=""
+release_notes="${SPARKLE_RELEASE_NOTES:-}"
 upload_choice=""
 skip_git_check=false
 assume_defaults=false
@@ -39,7 +39,7 @@ Options:
                            Prefix for archive URLs in the generated appcast.
   --public-ed-key KEY      Sparkle public EdDSA key.
   --notary-profile NAME    notarytool keychain profile. Required with --upload.
-  --notes TEXT             GitHub release notes if uploading.
+  --notes TEXT             Markdown notes shown in Sparkle and on GitHub.
   --upload                 Upload artifacts with gh after packaging.
   --replace-assets         Replace assets if the GitHub release already exists.
   --no-upload              Do not upload artifacts.
@@ -268,8 +268,17 @@ if [[ -z "$upload_choice" ]]; then
   fi
 fi
 
-if [[ "$upload_choice" == true && -z "$release_notes" ]]; then
-  release_notes="$(prompt_value "Release notes" "$APP_DISPLAY_NAME $release_tag.")"
+if [[ "$generate_appcast" == true && -z "$release_notes" ]]; then
+  if [[ "$assume_defaults" == true ]]; then
+    echo "--notes is required when generating an appcast with --yes." >&2
+    exit 2
+  fi
+  release_notes="$(prompt_value "Release notes (Markdown)" "")"
+fi
+
+if [[ "$generate_appcast" == true && -z "$release_notes" ]]; then
+  echo "Release notes are required when generating an appcast." >&2
+  exit 2
 fi
 
 if [[ "$upload_choice" == true && "$generate_appcast" != true ]]; then
@@ -289,6 +298,10 @@ package_args=(
   --tag "$release_tag"
   --public-ed-key "$public_ed_key"
 )
+
+if [[ "$generate_appcast" == true ]]; then
+  package_args+=(--release-notes "$release_notes")
+fi
 
 if [[ -n "$feed_url" ]]; then
   package_args+=(--feed-url "$feed_url")

@@ -16,6 +16,7 @@ build_number="${AMPESTRA_BUILD:-}"
 release_tag="${RELEASE_TAG:-}"
 feed_url="${SPARKLE_FEED_URL:-$DEFAULT_FEED_URL}"
 public_ed_key="${SPARKLE_PUBLIC_ED_KEY:-}"
+release_notes="${SPARKLE_RELEASE_NOTES:-}"
 archives_dir="${RELEASE_DIR:-$ROOT_DIR/dist/releases}"
 download_url_prefix="${SPARKLE_DOWNLOAD_URL_PREFIX:-}"
 notary_profile="${NOTARY_PROFILE:-}"
@@ -52,6 +53,7 @@ Options:
   --feed-url URL           Sparkle appcast URL embedded in the app.
                            Default: $DEFAULT_FEED_URL
   --public-ed-key KEY      Sparkle public EdDSA key from generate_keys.
+  --release-notes TEXT     Markdown release notes embedded in the Sparkle appcast.
   --archives-dir PATH      Directory for release zips and the Sparkle appcast.
                            Default: dist/releases
   --download-url-prefix URL
@@ -83,6 +85,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --public-ed-key)
       public_ed_key="$2"
+      shift 2
+      ;;
+    --release-notes)
+      release_notes="$2"
       shift 2
       ;;
     --archives-dir)
@@ -128,6 +134,8 @@ default_signing_identity() {
 
 generate_sparkle_appcast() {
   local appcast_tool="$ROOT_DIR/.build/artifacts/sparkle/Sparkle/bin/generate_appcast"
+  local archive_filename
+  local release_notes_path
 
   if [[ ! -x "$appcast_tool" ]]; then
     "$SWIFT" build -c release
@@ -135,6 +143,9 @@ generate_sparkle_appcast() {
 
   appcast_input_dir="$(mktemp -d "$ROOT_DIR/dist/appcast-input.XXXXXX")"
   cp "$archive_path" "$appcast_input_dir/"
+  archive_filename="$(basename "$archive_path")"
+  release_notes_path="$appcast_input_dir/${archive_filename%.zip}.md"
+  printf '%s\n' "$release_notes" > "$release_notes_path"
 
   if ! compgen -G "$appcast_input_dir/$APP_NAME-*.zip" >/dev/null; then
     echo "No Sparkle zip archives found in $archives_dir." >&2
@@ -145,6 +156,7 @@ generate_sparkle_appcast() {
     --download-url-prefix "$download_url_prefix" \
     --maximum-versions 1 \
     --maximum-deltas 0 \
+    --embed-release-notes \
     -o "$appcast_input_dir/$APPCAST_ASSET_NAME" \
     "$appcast_input_dir"
 
@@ -219,6 +231,11 @@ fi
 
 if [[ -z "$feed_url" ]]; then
   echo "Missing Sparkle feed URL." >&2
+  exit 2
+fi
+
+if [[ "$generate_appcast" == true && -z "$release_notes" ]]; then
+  echo "Missing Sparkle release notes. Pass --release-notes with Markdown text." >&2
   exit 2
 fi
 
