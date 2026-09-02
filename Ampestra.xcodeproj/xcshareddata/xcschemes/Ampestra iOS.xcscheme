@@ -29,6 +29,20 @@
             buildForAnalyzing = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
+               BlueprintIdentifier = "9C00C3F0E7D5F939DD38B968"
+               BuildableName = "AmpestraMobileIntentTests.xctest"
+               BlueprintName = "AmpestraMobileIntentTests"
+               ReferencedContainer = "container:Ampestra.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
                BlueprintIdentifier = "415E47F8DD57D9C62331F93D"
                BuildableName = "AmpestraMobileTests.xctest"
                BlueprintName = "AmpestraMobileTests"
@@ -76,6 +90,17 @@
                BlueprintIdentifier = "415E47F8DD57D9C62331F93D"
                BuildableName = "AmpestraMobileTests.xctest"
                BlueprintName = "AmpestraMobileTests"
+               ReferencedContainer = "container:Ampestra.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "9C00C3F0E7D5F939DD38B968"
+               BuildableName = "AmpestraMobileIntentTests.xctest"
+               BlueprintName = "AmpestraMobileIntentTests"
                ReferencedContainer = "container:Ampestra.xcodeproj">
             </BuildableReference>
          </TestableReference>

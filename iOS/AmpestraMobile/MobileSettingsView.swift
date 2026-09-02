@@ -9,7 +9,6 @@ struct MobileSettingsView: View {
     @ObservedObject var store: RemoteStore
     @ObservedObject private var hardwareButtons: HardwareVolumeButtonController
     @State private var showingForgetConfirmation = false
-    @State private var showingSiriTip = true
 
     let changeSpeaker: () -> Void
 
@@ -138,15 +137,18 @@ struct MobileSettingsView: View {
 
     private var siriSection: some View {
         Section {
-            SiriTipView(intent: SetSpeakerPowerIntent(), isVisible: $showingSiriTip)
-                .siriTipViewStyle(.automatic)
+            NavigationLink {
+                SiriShortcutsHelpView(defaultSpeakerName: store.speakerName)
+            } label: {
+                Label("How to use Siri", systemImage: "waveform.badge.mic")
+            }
 
             ShortcutsLink()
                 .shortcutsLinkStyle(.automaticOutline)
         } header: {
             Text("Siri & Shortcuts")
         } footer: {
-            Text("Speaker control stays on your local network, including when Siri runs Ampestra in the background.")
+            Text("Uses \(store.speakerName) by default and runs on your local network.")
         }
     }
 
@@ -176,4 +178,96 @@ struct MobileSettingsView: View {
         guard let settingsURL = URL(string: UIApplication.openSettingsURLString) else { return }
         openURL(settingsURL)
     }
+}
+
+private struct SiriShortcutsHelpView: View {
+    let defaultSpeakerName: String
+
+    private let examples = [
+        SiriCommandExample(
+            id: "power",
+            command: "Turn speakers on with Ampestra",
+            systemImage: "power"
+        ),
+        SiriCommandExample(
+            id: "source-tv",
+            command: "Set speakers to TV with Ampestra",
+            systemImage: "tv"
+        ),
+        SiriCommandExample(
+            id: "volume-up",
+            command: "Turn speakers up with Ampestra",
+            systemImage: "speaker.plus.fill"
+        ),
+        SiriCommandExample(
+            id: "mute",
+            command: "Mute speakers with Ampestra",
+            systemImage: "speaker.slash.fill"
+        ),
+        SiriCommandExample(
+            id: "pause",
+            command: "Pause with Ampestra",
+            systemImage: "pause.fill"
+        ),
+    ]
+
+    var body: some View {
+        List {
+            Section {
+                Label {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Just ask Siri")
+                            .fontWeight(.semibold)
+                        Text("No setup is needed. \(defaultSpeakerName) is selected automatically.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                }
+            }
+
+            Section("Try saying") {
+                ForEach(examples) { example in
+                    Label {
+                        Text("“\(example.command)”")
+                            .accessibilityIdentifier("siri-command-\(example.id)")
+                    } icon: {
+                        Image(systemName: example.systemImage)
+                            .foregroundStyle(AmpestraTheme.accent)
+                    }
+                }
+
+                Label {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("“Set speaker volume with Ampestra”")
+                        Text("Siri will ask for a number from 0 to 100.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "speaker.wave.2.fill")
+                        .foregroundStyle(AmpestraTheme.accent)
+                }
+            }
+
+            Section {
+                ShortcutsLink()
+                    .shortcutsLinkStyle(.automaticOutline)
+            } header: {
+                Text("Customize")
+            } footer: {
+                Text("Use Shortcuts to combine speaker actions with scenes, schedules, or other apps.")
+            }
+        }
+        .navigationTitle("Siri & Shortcuts")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct SiriCommandExample: Identifiable {
+    let id: String
+    let command: String
+    let systemImage: String
 }

@@ -1,13 +1,33 @@
 # Releasing Ampestra
 
-The iOS and macOS editions use the same marketing version and build number for
-each coordinated Ampestra release. Run `make version-check` before releasing to
-confirm that `project.yml` and the macOS `Info.plist` still agree.
+The iOS and macOS editions are versioned independently:
+
+- iOS starts at marketing version `0.1.0`. Keep that version while iterating on
+  the beta and increment its build number before every App Store Connect upload.
+- macOS keeps its existing release sequence. Increment both its marketing
+  version and build number for every GitHub/Sparkle release.
+
+The iOS source of truth is `project.yml`; the macOS source of truth is
+`Sources/Ampestra/Info.plist`. Run `make version-check` to validate and print
+both versions. The command does not require them to match.
 
 ## TestFlight
 
-The iOS project uses automatic signing for team `3VNW72P883`. Create a signed
-archive without uploading it:
+The iOS project uses automatic signing for team `3VNW72P883`. Before every
+upload, increment its build number and regenerate the checked-in Xcode project:
+
+```sh
+make ios-bump-build
+```
+
+This changes only the iOS `CURRENT_PROJECT_VERSION`; it does not change the iOS
+marketing version or either macOS version. Confirm the result with:
+
+```sh
+make ios-version-check
+```
+
+Create a signed archive without uploading it:
 
 ```sh
 make ios-archive
@@ -21,8 +41,8 @@ make ios-upload
 ```
 
 The upload uses the Apple developer account configured in Xcode and preserves
-the version and build number declared by the project. App Store Connect requires
-each uploaded build number for a marketing version to be new.
+the iOS version and build number declared by the project. App Store Connect
+requires every uploaded build number for a marketing version to be new.
 
 ## macOS Sparkle Release
 
@@ -33,6 +53,11 @@ This app uses locally built release artifacts hosted on GitHub Releases:
 - `sparkle-appcast.xml` for Sparkle update metadata
 
 GitHub Actions are not required.
+
+Sparkle compares the macOS `CFBundleVersion` in the installed app with the
+`sparkle:version` in the appcast. The GitHub tag identifies the release and
+defaults to `v<CFBundleShortVersionString>`. iOS builds are not published as
+GitHub Releases and do not need GitHub tags.
 
 ## Public Hosting
 
@@ -74,17 +99,20 @@ The default profile name is `Ampestra`.
 
 ## Build A Release
 
-Make sure the working tree is clean, then build locally:
+First update both macOS values in `Sources/Ampestra/Info.plist`. For example,
+after `1.0.4 (5)`, use `1.0.5 (6)`. Then validate and build from those committed
+values with a clean working tree:
 
 ```sh
-make release VERSION=1.0.0
+make macos-version-check
+make release
 ```
 
 The package command writes:
 
 ```text
-dist/releases/Ampestra-v1.0.0.dmg
-dist/releases/Ampestra-v1.0.0.zip
+dist/releases/Ampestra-v1.0.5.dmg
+dist/releases/Ampestra-v1.0.5.zip
 dist/releases/sparkle-appcast.xml
 ```
 
@@ -100,7 +128,7 @@ explicitly built as universal.
 Let the release script upload with GitHub CLI:
 
 ```sh
-make release-upload VERSION=1.0.0
+make release-upload
 ```
 
 Uploads require a notary profile and a Developer ID signing identity. If a
@@ -111,12 +139,12 @@ and appcast assets.
 Or upload manually:
 
 ```sh
-gh release create v1.0.0 \
-  dist/releases/Ampestra-v1.0.0.dmg \
-  dist/releases/Ampestra-v1.0.0.zip \
+gh release create v1.0.5 \
+  dist/releases/Ampestra-v1.0.5.dmg \
+  dist/releases/Ampestra-v1.0.5.zip \
   dist/releases/sparkle-appcast.xml \
-  --title "Ampestra v1.0.0" \
-  --notes "Initial release."
+  --title "Ampestra v1.0.5" \
+  --notes "Ampestra v1.0.5."
 ```
 
 ## Dry Runs
@@ -124,7 +152,7 @@ gh release create v1.0.0 \
 For a local packaging check without appcast generation:
 
 ```sh
-make release-test VERSION=1.0.0
+make release-test
 ```
 
 Dry-run artifacts are written under `dist/test-releases`. Do not upload them.
@@ -133,8 +161,11 @@ publishing.
 
 ## Useful Details
 
-- Release scripts read `CFBundleShortVersionString` and `CFBundleVersion` from
-  `Sources/Ampestra/Info.plist` unless `VERSION` or `--build` is provided.
+- `make ios-version-check` validates only iOS; `make macos-version-check`
+  validates only macOS; `make version-check` validates both independently.
+- macOS release scripts read `CFBundleShortVersionString` and `CFBundleVersion`
+  from `Sources/Ampestra/Info.plist` unless `MACOS_VERSION` or `--build` is
+  provided. `VERSION` remains a backwards-compatible Makefile alias.
 - `SPARKLE_DOWNLOAD_URL_PREFIX` or `script/release.sh --download-url-prefix URL`
   can override the generated appcast download URL.
 - `SPARKLE_FEED_URL` or `script/release.sh --feed-url URL` can override the feed

@@ -10,6 +10,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: 0.1.0
+    CURRENT_PROJECT_VERSION: 1
     IPHONEOS_DEPLOYMENT_TARGET: "27.0"
     DEVELOPMENT_TEAM: 3VNW72P883
     CODE_SIGN_STYLE: Automatic
@@ -54,8 +56,6 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-        MARKETING_VERSION: 1.0.4
-        CURRENT_PROJECT_VERSION: 5
         SUPPORTS_MACCATALYST: NO
         INFOPLIST_KEY_CFBundleDisplayName: Ampestra
 
@@ -72,6 +72,18 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.freddyswift.ampestra.tests
         GENERATE_INFOPLIST_FILE: YES
 
+  AmpestraMobileIntentTests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: iOS/AmpestraMobileIntentTests
+    dependencies:
+      - target: AmpestraMobile
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.freddyswift.ampestra.intent-tests
+        GENERATE_INFOPLIST_FILE: YES
+
 schemes:
   Ampestra iOS:
     build:
@@ -79,6 +91,7 @@ schemes:
         KEFCore: all
         AmpestraMobile: all
         AmpestraMobileTests: [test]
+        AmpestraMobileIntentTests: [test]
     run:
       config: Debug
     test:
@@ -86,6 +99,8 @@ schemes:
       gatherCoverageData: true
       targets:
         - name: AmpestraMobileTests
+          parallelizable: false
+        - name: AmpestraMobileIntentTests
           parallelizable: false
     profile:
       config: Release

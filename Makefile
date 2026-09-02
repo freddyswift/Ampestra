@@ -1,5 +1,6 @@
 CODESIGN_IDENTITY ?= -
-VERSION ?=
+# VERSION remains a backwards-compatible alias for macOS release commands.
+MACOS_VERSION ?= $(VERSION)
 SWIFT ?= ./script/swift.sh
 SDK ?=
 IOS_SCHEME ?= Ampestra iOS
@@ -18,7 +19,7 @@ endif
 export SPARKLE_PUBLIC_ED_KEY
 export NOTARY_PROFILE
 
-.PHONY: build check version-check ios-project ios-build ios-test ios-archive ios-upload run dev-reset dev-reset-hard dev-fresh dev-fresh-hard release-build release release-upload release-test release-config sparkle-key notary-profile app install release-package clean
+.PHONY: build check version-check ios-version-check macos-version-check ios-project ios-bump-build ios-build ios-test ios-archive ios-upload run dev-reset dev-reset-hard dev-fresh dev-fresh-hard release-build release release-upload release-test release-config sparkle-key notary-profile app install release-package clean
 
 build:
 	$(SWIFT) build
@@ -35,8 +36,17 @@ check:
 version-check:
 	./script/check_release_versions.sh
 
+ios-version-check:
+	./script/check_release_versions.sh --ios
+
+macos-version-check:
+	./script/check_release_versions.sh --macos
+
 ios-project:
 	xcodegen generate --spec project.yml
+
+ios-bump-build:
+	./script/bump_ios_build.sh
 
 ios-build: ios-project
 	xcodebuild -project Ampestra.xcodeproj -scheme "$(IOS_SCHEME)" -destination "generic/platform=iOS Simulator" build CODE_SIGNING_ALLOWED=NO
@@ -44,7 +54,7 @@ ios-build: ios-project
 ios-test: ios-project
 	xcodebuild -project Ampestra.xcodeproj -scheme "$(IOS_SCHEME)" -destination "platform=iOS Simulator,name=iPhone 17 Pro,OS=27.0" test CODE_SIGNING_ALLOWED=NO
 
-ios-archive: version-check ios-project
+ios-archive: ios-version-check ios-project
 	mkdir -p "$(dir $(IOS_ARCHIVE_PATH))"
 	xcodebuild -project Ampestra.xcodeproj -scheme "$(IOS_SCHEME)" -configuration Release -destination "generic/platform=iOS" -archivePath "$(IOS_ARCHIVE_PATH)" -allowProvisioningUpdates clean archive
 
@@ -76,14 +86,14 @@ app:
 install:
 	SPARKLE_PUBLIC_ED_KEY= SPARKLE_FEED_URL= ./script/install_app.sh
 
-release:
-	./script/release.sh $(VERSION)
+release: macos-version-check
+	./script/release.sh $(MACOS_VERSION)
 
-release-upload:
-	./script/release.sh $(VERSION) --upload
+release-upload: macos-version-check
+	./script/release.sh $(MACOS_VERSION) --upload
 
-release-test:
-	RELEASE_DIR=dist/test-releases SPARKLE_PUBLIC_ED_KEY=dry-run-public-key NOTARY_PROFILE= ./script/release.sh $(VERSION) --no-upload --no-appcast --no-git-check --yes
+release-test: macos-version-check
+	RELEASE_DIR=dist/test-releases SPARKLE_PUBLIC_ED_KEY=dry-run-public-key NOTARY_PROFILE= ./script/release.sh $(MACOS_VERSION) --no-upload --no-appcast --no-git-check --yes
 
 release-config:
 	@printf "Sparkle public EdDSA key: "; read -r sparkle_key; \
@@ -103,7 +113,7 @@ notary-profile:
 	xcrun notarytool store-credentials Ampestra
 
 release-package:
-	$(MAKE) release VERSION=$(VERSION)
+	$(MAKE) release MACOS_VERSION=$(MACOS_VERSION)
 
 clean:
 	$(SWIFT) package clean

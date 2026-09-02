@@ -13,6 +13,8 @@
 		149A468DCFAA888384A51E68 /* KEFCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 0E72489372120B720B412E43 /* KEFCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		1798CF11D706835A6769973C /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5364BDCC50F3309F1CC563B /* ConnectionView.swift */; };
 		2329DDE6159C058DD3E74B84 /* MobileSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5F43D749384EA517EA229E5 /* MobileSettingsView.swift */; };
+		2E84639EF66C417DDF32D336 /* AppIntentMetadataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 029D3EAB4AD253940942F451 /* AppIntentMetadataTests.swift */; };
+		3125FB13A4218DE02B5851C0 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 820A42FFE47B44DC05046542 /* PrivacyInfo.xcprivacy */; };
 		35164F183FDC1D7E1615D488 /* VolumePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF4B7FDAB797B7F9425F5488 /* VolumePolicy.swift */; };
 		357C47DEA15EDAE8E720D3FA /* ManualHostValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C6D486AF9337C780480C779 /* ManualHostValidator.swift */; };
 		55229DA3071EDA63F8AA7F95 /* RemoteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 765E75417F77A6BC30A45FF2 /* RemoteView.swift */; };
@@ -39,6 +41,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		03336608A0444E85912348B6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1E8107DB7B8B94943CD4A990 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 13727CCE9548D3442015C16D;
+			remoteInfo = AmpestraMobile;
+		};
 		54F36B227AC62183960A09CC /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 1E8107DB7B8B94943CD4A990 /* Project object */;
@@ -90,6 +99,7 @@
 /* Begin PBXFileReference section */
 		0019312CECDC09FE42F1FC0E /* HardwareVolumeButtonController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HardwareVolumeButtonController.swift; sourceTree = "<group>"; };
 		006D6205B063C65C53B54164 /* DashboardComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardComponents.swift; sourceTree = "<group>"; };
+		029D3EAB4AD253940942F451 /* AppIntentMetadataTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIntentMetadataTests.swift; sourceTree = "<group>"; };
 		096CF648E44FCF5ECA67EAEE /* SpeakerIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerIntents.swift; sourceTree = "<group>"; };
 		0E72489372120B720B412E43 /* KEFCore.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = KEFCore.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		2540205E8EC7531E46DB8ECB /* Ampestra.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Ampestra.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -106,7 +116,9 @@
 		765E75417F77A6BC30A45FF2 /* RemoteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteView.swift; sourceTree = "<group>"; };
 		7C6D486AF9337C780480C779 /* ManualHostValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualHostValidator.swift; sourceTree = "<group>"; };
 		80AE7F2CD097AB14F96EB674 /* RemoteComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteComponents.swift; sourceTree = "<group>"; };
+		820A42FFE47B44DC05046542 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		87448EEE0397F7F00F260B30 /* KEFDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KEFDiscovery.swift; sourceTree = "<group>"; };
+		87D82D76FD2389C5FD26F489 /* AmpestraMobileIntentTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AmpestraMobileIntentTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		9EF55F9D184AE019B0D2B2F5 /* SpeakerModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerModels.swift; sourceTree = "<group>"; };
 		BE59CEC7AC550DB955B3C906 /* SpeakerCommandService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerCommandService.swift; sourceTree = "<group>"; };
 		C5364BDCC50F3309F1CC563B /* ConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionView.swift; sourceTree = "<group>"; };
@@ -150,6 +162,7 @@
 			isa = PBXGroup;
 			children = (
 				2540205E8EC7531E46DB8ECB /* Ampestra.app */,
+				87D82D76FD2389C5FD26F489 /* AmpestraMobileIntentTests.xctest */,
 				6C78F9688EC626207B2252C3 /* AmpestraMobileTests.xctest */,
 				0E72489372120B720B412E43 /* KEFCore.framework */,
 			);
@@ -198,6 +211,7 @@
 				2DD60648BF7EB3F38B8CD384 /* DashboardOverviewComponents.swift */,
 				0019312CECDC09FE42F1FC0E /* HardwareVolumeButtonController.swift */,
 				F5F43D749384EA517EA229E5 /* MobileSettingsView.swift */,
+				820A42FFE47B44DC05046542 /* PrivacyInfo.xcprivacy */,
 				80AE7F2CD097AB14F96EB674 /* RemoteComponents.swift */,
 				511C75AA572E2682508A691B /* RemoteStore.swift */,
 				47AA12540673F101FD5D8791 /* RemoteSupport.swift */,
@@ -211,10 +225,19 @@
 			path = AmpestraMobile;
 			sourceTree = "<group>";
 		};
+		ABFDBC7C7388BE2820557EF1 /* AmpestraMobileIntentTests */ = {
+			isa = PBXGroup;
+			children = (
+				029D3EAB4AD253940942F451 /* AppIntentMetadataTests.swift */,
+			);
+			path = AmpestraMobileIntentTests;
+			sourceTree = "<group>";
+		};
 		C73B435F25F7FBB7A0EDB04C /* iOS */ = {
 			isa = PBXGroup;
 			children = (
 				9E85B9B89E63C9E445DF1B8D /* AmpestraMobile */,
+				ABFDBC7C7388BE2820557EF1 /* AmpestraMobileIntentTests */,
 				15EEDEE771E5816C2004E442 /* AmpestraMobileTests */,
 			);
 			path = iOS;
@@ -265,6 +288,24 @@
 			productReference = 6C78F9688EC626207B2252C3 /* AmpestraMobileTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		9C00C3F0E7D5F939DD38B968 /* AmpestraMobileIntentTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DE278997748CECF4B51AABC6 /* Build configuration list for PBXNativeTarget "AmpestraMobileIntentTests" */;
+			buildPhases = (
+				A8C8EDF6244E24A997FDCFEA /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				28681EC872FBA39C3B2B5124 /* PBXTargetDependency */,
+			);
+			name = AmpestraMobileIntentTests;
+			packageProductDependencies = (
+			);
+			productName = AmpestraMobileIntentTests;
+			productReference = 87D82D76FD2389C5FD26F489 /* AmpestraMobileIntentTests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		F9F46C6176B1E77D3A082755 /* KEFCore */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 808CD845BCBCA6779062E93F /* Build configuration list for PBXNativeTarget "KEFCore" */;
@@ -299,6 +340,11 @@
 						DevelopmentTeam = 3VNW72P883;
 						ProvisioningStyle = Automatic;
 					};
+					9C00C3F0E7D5F939DD38B968 = {
+						DevelopmentTeam = 3VNW72P883;
+						ProvisioningStyle = Automatic;
+						TestTargetID = 13727CCE9548D3442015C16D;
+					};
 					F9F46C6176B1E77D3A082755 = {
 						DevelopmentTeam = 3VNW72P883;
 						ProvisioningStyle = Automatic;
@@ -322,6 +368,7 @@
 				F9F46C6176B1E77D3A082755 /* KEFCore */,
 				13727CCE9548D3442015C16D /* AmpestraMobile */,
 				415E47F8DD57D9C62331F93D /* AmpestraMobileTests */,
+				9C00C3F0E7D5F939DD38B968 /* AmpestraMobileIntentTests */,
 			);
 		};
 /* End PBXProject section */
@@ -332,6 +379,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C4457893E4E686E00552A281 /* Assets.xcassets in Resources */,
+				3125FB13A4218DE02B5851C0 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -358,6 +406,14 @@
 				8B4A2CA4FC8D1D3F2DC4BDB7 /* SpeakerEntity.swift in Sources */,
 				E51B33E42C2531F0CA840F99 /* SpeakerIntents.swift in Sources */,
 				C3A15D3DA57EDD100E81519E /* SpeakerPreferences.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A8C8EDF6244E24A997FDCFEA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2E84639EF66C417DDF32D336 /* AppIntentMetadataTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -391,6 +447,11 @@
 			target = F9F46C6176B1E77D3A082755 /* KEFCore */;
 			targetProxy = A3207A81D20B9CBFDC2DC79D /* PBXContainerItemProxy */;
 		};
+		28681EC872FBA39C3B2B5124 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 13727CCE9548D3442015C16D /* AmpestraMobile */;
+			targetProxy = 03336608A0444E85912348B6 /* PBXContainerItemProxy */;
+		};
 		588D093B6DF805B822C74DD9 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 13727CCE9548D3442015C16D /* AmpestraMobile */;
@@ -410,7 +471,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = iOS/AmpestraMobile/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Ampestra;
@@ -418,7 +478,6 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.freddyswift.ampestra;
 				PRODUCT_MODULE_NAME = AmpestraMobile;
 				PRODUCT_NAME = Ampestra;
@@ -469,6 +528,23 @@
 			};
 			name = Release;
 		};
+		507221D2545E9E87F673884E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.freddyswift.ampestra.intent-tests";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = AmpestraMobile;
+			};
+			name = Release;
+		};
 		7A8CC1F2929D3D9BC472F8D5 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -505,6 +581,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 3VNW72P883;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -519,6 +596,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 0.1.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -530,6 +608,23 @@
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
+		};
+		7CF2923A7FC09588F5A81B61 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.freddyswift.ampestra.intent-tests";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = AmpestraMobile;
+			};
+			name = Debug;
 		};
 		820ED0E17458C4A3E3FFF174 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -554,7 +649,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = iOS/AmpestraMobile/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Ampestra;
@@ -562,7 +656,6 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.freddyswift.ampestra;
 				PRODUCT_MODULE_NAME = AmpestraMobile;
 				PRODUCT_NAME = Ampestra;
@@ -632,6 +725,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 3VNW72P883;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -652,6 +746,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 0.1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -700,6 +795,15 @@
 			buildConfigurations = (
 				175E665E1328AAFDA14CB4B1 /* Debug */,
 				C4386B391364F8DACC0333FC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		DE278997748CECF4B51AABC6 /* Build configuration list for PBXNativeTarget "AmpestraMobileIntentTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7CF2923A7FC09588F5A81B61 /* Debug */,
+				507221D2545E9E87F673884E /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

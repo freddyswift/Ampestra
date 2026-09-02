@@ -1,6 +1,7 @@
 import AppIntents
 import Foundation
 import KEFCore
+import SwiftUI
 
 protocol BackgroundSpeakerIntent: AppIntent, CancellableIntent {}
 
@@ -21,13 +22,38 @@ enum SpeakerIntentSource: String, AppEnum {
 
     static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Speaker Source")
     static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
-        .wifi: DisplayRepresentation(title: "Wi‑Fi", synonyms: ["WiFi", "wireless"]),
-        .bluetooth: "Bluetooth",
-        .tv: DisplayRepresentation(title: "TV", synonyms: ["television"]),
-        .optical: "Optical",
-        .coaxial: DisplayRepresentation(title: "Coaxial", synonyms: ["coax"]),
-        .analog: DisplayRepresentation(title: "Analog", synonyms: ["aux", "auxiliary"]),
-        .usb: "USB",
+        .wifi: DisplayRepresentation(
+            title: "Wi‑Fi",
+            image: .init(systemName: "wifi"),
+            synonyms: ["WiFi", "wireless"]
+        ),
+        .bluetooth: DisplayRepresentation(
+            title: "Bluetooth",
+            image: .init(systemName: "antenna.radiowaves.left.and.right")
+        ),
+        .tv: DisplayRepresentation(
+            title: "TV",
+            image: .init(systemName: "tv"),
+            synonyms: ["television"]
+        ),
+        .optical: DisplayRepresentation(
+            title: "Optical",
+            image: .init(systemName: "opticaldisc")
+        ),
+        .coaxial: DisplayRepresentation(
+            title: "Coaxial",
+            image: .init(systemName: "cable.connector"),
+            synonyms: ["coax"]
+        ),
+        .analog: DisplayRepresentation(
+            title: "Analog",
+            image: .init(systemName: "waveform"),
+            synonyms: ["aux", "auxiliary"]
+        ),
+        .usb: DisplayRepresentation(
+            title: "USB",
+            image: .init(systemName: "cable.connector.horizontal")
+        ),
     ]
 
     var speakerSource: SpeakerSource {
@@ -49,8 +75,16 @@ enum SpeakerVolumeDirection: String, AppEnum {
 
     static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Volume Direction")
     static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
-        .up: DisplayRepresentation(title: "Up", synonyms: ["louder", "increase"]),
-        .down: DisplayRepresentation(title: "Down", synonyms: ["quieter", "decrease"]),
+        .up: DisplayRepresentation(
+            title: "Up",
+            image: .init(systemName: "speaker.plus.fill"),
+            synonyms: ["louder", "increase"]
+        ),
+        .down: DisplayRepresentation(
+            title: "Down",
+            image: .init(systemName: "speaker.minus.fill"),
+            synonyms: ["quieter", "decrease"]
+        ),
     ]
 
     var direction: Int { self == .up ? 1 : -1 }
@@ -62,8 +96,16 @@ enum SpeakerPowerState: String, AppEnum {
 
     static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Power State")
     static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
-        .on: DisplayRepresentation(title: "On", synonyms: ["awake", "wake up"]),
-        .off: DisplayRepresentation(title: "Off", synonyms: ["standby", "sleep"]),
+        .on: DisplayRepresentation(
+            title: "On",
+            image: .init(systemName: "power"),
+            synonyms: ["awake", "wake up"]
+        ),
+        .off: DisplayRepresentation(
+            title: "Off",
+            image: .init(systemName: "moon.zzz.fill"),
+            synonyms: ["standby", "sleep"]
+        ),
     ]
 }
 
@@ -73,8 +115,16 @@ enum SpeakerMuteState: String, AppEnum {
 
     static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Mute State")
     static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
-        .mute: DisplayRepresentation(title: "Mute", synonyms: ["silent", "silence"]),
-        .unmute: DisplayRepresentation(title: "Unmute", synonyms: ["restore sound"]),
+        .mute: DisplayRepresentation(
+            title: "Mute",
+            image: .init(systemName: "speaker.slash.fill"),
+            synonyms: ["silent", "silence"]
+        ),
+        .unmute: DisplayRepresentation(
+            title: "Unmute",
+            image: .init(systemName: "speaker.wave.2.fill"),
+            synonyms: ["restore sound"]
+        ),
     ]
 }
 
@@ -86,10 +136,25 @@ enum SpeakerPlaybackAction: String, AppEnum {
 
     static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Playback Action")
     static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
-        .play: DisplayRepresentation(title: "Play", synonyms: ["resume"]),
-        .pause: "Pause",
-        .next: DisplayRepresentation(title: "Next", synonyms: ["skip", "skip forward"]),
-        .previous: DisplayRepresentation(title: "Previous", synonyms: ["back", "skip back"]),
+        .play: DisplayRepresentation(
+            title: "Play",
+            image: .init(systemName: "play.fill"),
+            synonyms: ["resume"]
+        ),
+        .pause: DisplayRepresentation(
+            title: "Pause",
+            image: .init(systemName: "pause.fill")
+        ),
+        .next: DisplayRepresentation(
+            title: "Skip Forward",
+            image: .init(systemName: "forward.end.fill"),
+            synonyms: ["next", "skip"]
+        ),
+        .previous: DisplayRepresentation(
+            title: "Skip Back",
+            image: .init(systemName: "backward.end.fill"),
+            synonyms: ["previous", "back"]
+        ),
     ]
 
     var command: SpeakerPlaybackCommand {
@@ -99,6 +164,36 @@ enum SpeakerPlaybackAction: String, AppEnum {
         case .next: .next
         case .previous: .previous
         }
+    }
+
+    var resultTitle: String {
+        switch self {
+        case .play: "Playing"
+        case .pause: "Paused"
+        case .next: "Skipped forward"
+        case .previous: "Skipped back"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .play: "play.fill"
+        case .pause: "pause.fill"
+        case .next: "forward.end.fill"
+        case .previous: "backward.end.fill"
+        }
+    }
+}
+
+struct WirelessSpeakerSourceOptions: DynamicOptionsProvider {
+    func results() async throws -> [SpeakerIntentSource] {
+        [.wifi, .bluetooth]
+    }
+}
+
+struct WiredSpeakerSourceOptions: DynamicOptionsProvider {
+    func results() async throws -> [SpeakerIntentSource] {
+        [.tv, .optical, .coaxial, .analog, .usb]
     }
 }
 
@@ -122,11 +217,19 @@ struct SetSpeakerSourceIntent: BackgroundSpeakerIntent {
         Summary("Set \(\.$speaker) to \(\.$source)")
     }
 
-    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<SpeakerIntentSource> {
+    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<SpeakerIntentSource> & ShowsSnippetView {
         let result = try await runSpeakerCommand {
             try await speakerCommands.setSource(source.speakerSource, speakerID: speaker?.id)
         }
-        return .result(value: source, dialog: IntentDialog(result.message))
+        return .result(
+            value: source,
+            dialog: IntentDialog(result.message),
+            view: SpeakerIntentResultView(
+                confirmation: result,
+                headline: result.source.displayName,
+                systemImage: result.source.systemImage
+            )
+        )
     }
 }
 
@@ -150,11 +253,19 @@ struct AdjustSpeakerVolumeIntent: BackgroundSpeakerIntent {
         Summary("Turn \(\.$speaker) volume \(\.$direction)")
     }
 
-    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<Int> {
+    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<Int> & ShowsSnippetView {
         let result = try await runSpeakerCommand {
             try await speakerCommands.adjustVolume(direction: direction.direction, speakerID: speaker?.id)
         }
-        return .result(value: result.volume, dialog: IntentDialog(result.message))
+        return .result(
+            value: result.volume,
+            dialog: IntentDialog(result.message),
+            view: SpeakerIntentResultView(
+                confirmation: result,
+                headline: "Volume \(result.volume)",
+                systemImage: direction == .up ? "speaker.plus.fill" : "speaker.minus.fill"
+            )
+        )
     }
 }
 
@@ -182,11 +293,19 @@ struct SetSpeakerVolumeIntent: BackgroundSpeakerIntent {
         Summary("Set \(\.$speaker) volume to \(\.$volume)")
     }
 
-    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<Int> {
+    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<Int> & ShowsSnippetView {
         let result = try await runSpeakerCommand {
             try await speakerCommands.setVolume(volume, speakerID: speaker?.id)
         }
-        return .result(value: result.volume, dialog: IntentDialog(result.message))
+        return .result(
+            value: result.volume,
+            dialog: IntentDialog(result.message),
+            view: SpeakerIntentResultView(
+                confirmation: result,
+                headline: "Volume \(result.volume)",
+                systemImage: "speaker.wave.2.fill"
+            )
+        )
     }
 }
 
@@ -210,11 +329,19 @@ struct SetSpeakerMuteIntent: BackgroundSpeakerIntent {
         Summary("\(\.$state) \(\.$speaker)")
     }
 
-    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<Int> {
+    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<Int> & ShowsSnippetView {
         let result = try await runSpeakerCommand {
             try await speakerCommands.setMuted(state == .mute, speakerID: speaker?.id)
         }
-        return .result(value: result.volume, dialog: IntentDialog(result.message))
+        return .result(
+            value: result.volume,
+            dialog: IntentDialog(result.message),
+            view: SpeakerIntentResultView(
+                confirmation: result,
+                headline: state == .mute ? "Muted" : "Unmuted",
+                systemImage: state == .mute ? "speaker.slash.fill" : "speaker.wave.2.fill"
+            )
+        )
     }
 }
 
@@ -238,16 +365,24 @@ struct SetSpeakerPowerIntent: BackgroundSpeakerIntent {
         Summary("Turn \(\.$speaker) \(\.$state)")
     }
 
-    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<Bool> {
+    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<Bool> & ShowsSnippetView {
         let shouldPowerOn = state == .on
         let result = try await runSpeakerCommand {
             try await speakerCommands.setPower(on: shouldPowerOn, speakerID: speaker?.id)
         }
-        return .result(value: shouldPowerOn, dialog: IntentDialog(result.message))
+        return .result(
+            value: shouldPowerOn,
+            dialog: IntentDialog(result.message),
+            view: SpeakerIntentResultView(
+                confirmation: result,
+                headline: shouldPowerOn ? "On" : "Standby",
+                systemImage: shouldPowerOn ? "power" : "moon.zzz.fill"
+            )
+        )
     }
 }
 
-struct ControlSpeakerPlaybackIntent: BackgroundSpeakerIntent {
+struct ControlSpeakerPlaybackIntent: BackgroundSpeakerIntent, AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Control Speaker Playback"
     static let description = IntentDescription(
         "Controls Wi‑Fi or Bluetooth playback on a saved speaker.",
@@ -267,11 +402,19 @@ struct ControlSpeakerPlaybackIntent: BackgroundSpeakerIntent {
         Summary("\(\.$action) on \(\.$speaker)")
     }
 
-    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<Bool> {
+    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<Bool> & ShowsSnippetView {
         let result = try await runSpeakerCommand {
             try await speakerCommands.performPlayback(action.command, speakerID: speaker?.id)
         }
-        return .result(value: result.isPlaying ?? false, dialog: IntentDialog(result.message))
+        return .result(
+            value: result.isPlaying ?? false,
+            dialog: IntentDialog(result.message),
+            view: SpeakerIntentResultView(
+                confirmation: result,
+                headline: action.resultTitle,
+                systemImage: action.systemImage
+            )
+        )
     }
 }
 
@@ -293,92 +436,141 @@ struct GetSpeakerStatusIntent: BackgroundSpeakerIntent {
         Summary("Get status of \(\.$speaker)")
     }
 
-    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<String> {
+    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<String> & ShowsSnippetView {
         let result = try await runSpeakerCommand {
             try await speakerCommands.status(speakerID: speaker?.id)
         }
         let status = String(localized: result.message)
-        return .result(value: status, dialog: IntentDialog(result.message))
+        return .result(
+            value: status,
+            dialog: IntentDialog(result.message),
+            view: SpeakerIntentResultView(
+                confirmation: result,
+                headline: result.status.displayName,
+                systemImage: result.status.systemImage
+            )
+        )
     }
 }
 
 struct AmpestraShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
-            intent: SetSpeakerSourceIntent(),
+            intent: AdjustSpeakerVolumeIntent(),
             phrases: [
-                "Set speakers to \(\.$source) with \(.applicationName)",
-                "Switch speakers to \(\.$source) using \(.applicationName)",
-                "Change the source on \(\.$speaker) with \(.applicationName)",
+                "Turn speakers \(\.$direction) with \(.applicationName)",
+                "Adjust speaker volume with \(.applicationName)",
             ],
-            shortTitle: "Set Speaker Source",
-            systemImageName: "hifispeaker.2"
+            shortTitle: "Adjust Volume",
+            systemImageName: "speaker.plus"
         )
 
         AppShortcut(
             intent: SetSpeakerVolumeIntent(),
             phrases: [
                 "Set speaker volume with \(.applicationName)",
-                "Set \(\.$speaker) volume with \(.applicationName)",
             ],
-            shortTitle: "Set Speaker Volume",
+            shortTitle: "Set Volume",
             systemImageName: "speaker.wave.2"
-        )
-
-        AppShortcut(
-            intent: AdjustSpeakerVolumeIntent(),
-            phrases: [
-                "Turn speakers \(\.$direction) with \(.applicationName)",
-                "Adjust speakers \(\.$direction) using \(.applicationName)",
-                "Adjust volume on \(\.$speaker) with \(.applicationName)",
-            ],
-            shortTitle: "Adjust Speaker Volume",
-            systemImageName: "speaker.plus"
-        )
-
-        AppShortcut(
-            intent: SetSpeakerMuteIntent(),
-            phrases: [
-                "\(\.$state) speakers with \(.applicationName)",
-                "Change mute on \(\.$speaker) with \(.applicationName)",
-            ],
-            shortTitle: "Mute Speaker",
-            systemImageName: "speaker.slash"
         )
 
         AppShortcut(
             intent: SetSpeakerPowerIntent(),
             phrases: [
                 "Turn speakers \(\.$state) with \(.applicationName)",
-                "Speakers \(\.$state) with \(.applicationName)",
-                "Change power on \(\.$speaker) with \(.applicationName)",
+                "Change speaker power with \(.applicationName)",
             ],
-            shortTitle: "Set Speaker Power",
+            shortTitle: "Speaker Power",
             systemImageName: "power"
+        )
+
+        AppShortcut(
+            intent: SetSpeakerSourceIntent(),
+            phrases: [
+                "Set speakers to \(\.$source) with \(.applicationName)",
+                "Change speaker source with \(.applicationName)",
+            ],
+            shortTitle: "Set Source",
+            systemImageName: "hifispeaker.2",
+            parameterPresentation: ParameterPresentation(
+                for: \.$source,
+                summary: Summary("Set speakers to \(\.$source)")
+            ) {
+                OptionsCollection(
+                    WirelessSpeakerSourceOptions(),
+                    title: "Wireless",
+                    systemImageName: "wifi"
+                )
+                OptionsCollection(
+                    WiredSpeakerSourceOptions(),
+                    title: "Inputs",
+                    systemImageName: "cable.connector"
+                )
+            }
+        )
+
+        AppShortcut(
+            intent: SetSpeakerMuteIntent(),
+            phrases: [
+                "\(\.$state) speakers with \(.applicationName)",
+                "Change speaker mute with \(.applicationName)",
+            ],
+            shortTitle: "Mute or Unmute",
+            systemImageName: "speaker.slash"
         )
 
         AppShortcut(
             intent: ControlSpeakerPlaybackIntent(),
             phrases: [
-                "\(\.$action) speakers with \(.applicationName)",
-                "Control playback on \(\.$speaker) with \(.applicationName)",
+                "\(\.$action) with \(.applicationName)",
+                "Control speaker playback with \(.applicationName)",
             ],
             shortTitle: "Control Playback",
             systemImageName: "playpause"
         )
-
-        AppShortcut(
-            intent: GetSpeakerStatusIntent(),
-            phrases: [
-                "Get speaker status with \(.applicationName)",
-                "Get status of \(\.$speaker) with \(.applicationName)",
-            ],
-            shortTitle: "Get Speaker Status",
-            systemImageName: "info.circle"
-        )
     }
 
     static let shortcutTileColor: ShortcutTileColor = .teal
+}
+
+private struct SpeakerIntentResultView: View {
+    let confirmation: SpeakerCommandConfirmation
+    let headline: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(spacing: 16) {
+            Image(systemName: systemImage)
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(Color.cyan)
+                .frame(width: 48, height: 48)
+                .background(Color.cyan.opacity(0.14), in: RoundedRectangle(cornerRadius: 14))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(headline)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+
+                Text(confirmation.speakerName)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding()
+    }
+
+    private var detail: String {
+        if confirmation.status == .powerOn {
+            return "\(confirmation.source.displayName) · Volume \(confirmation.volume)"
+        }
+        return confirmation.status.detailText
+    }
 }
 
 private func runSpeakerCommand(
