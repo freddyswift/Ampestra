@@ -166,9 +166,15 @@ struct RemoteErrorBanner: View {
             .accessibilityLabel("Dismiss error")
         }
         .padding(16)
-        .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(
+            Color.orange.opacity(0.08),
+            in: RoundedRectangle(
+                cornerRadius: AmpestraTheme.cardCornerRadius,
+                style: .continuous
+            )
+        )
         .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: AmpestraTheme.cardCornerRadius, style: .continuous)
                 .stroke(Color.orange.opacity(0.2), lineWidth: 1)
         }
     }
@@ -198,6 +204,6 @@ struct ChooseSpeakerCard: View {
             .tint(AmpestraTheme.accent)
         }
         .padding(22)
-        .ampestraCard(cornerRadius: 24)
+        .ampestraCard()
     }
 }

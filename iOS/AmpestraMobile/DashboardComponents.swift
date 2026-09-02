@@ -72,7 +72,7 @@ struct VolumeControlCard: View {
     }
 
     private var volumeButtons: some View {
-        GlassEffectContainer(spacing: 18) {
+        GlassEffectContainer(spacing: 6) {
             volumeButtonsContent
         }
     }
@@ -97,7 +97,7 @@ struct VolumeControlCard: View {
             .ampestraGlassButton(prominent: true)
             .buttonBorderShape(.capsule)
             .tint(AmpestraTheme.accent)
-            .foregroundStyle(.white)
+            .foregroundStyle(AmpestraTheme.onAccent)
             .accessibilityLabel(store.isMuted ? "Restore volume" : "Mute")
 
             volumeButton(systemName: "plus", label: "Volume up") {
@@ -275,6 +275,7 @@ struct PlaybackControlCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("NOW PLAYING")
                         .font(.caption2.weight(.semibold))
+                        .tracking(0.8)
                         .foregroundStyle(.secondary)
 
                     Text(store.nowPlaying?.title ?? "Current track")
@@ -324,7 +325,7 @@ struct PlaybackControlCard: View {
         }
         .padding(compact ? 14 : 18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .ampestraCard(cornerRadius: 24)
+        .ampestraCard()
     }
 
     private func transportButton(
@@ -347,7 +348,7 @@ struct PlaybackControlCard: View {
         .ampestraGlassButton(prominent: prominent)
         .buttonBorderShape(.circle)
         .tint(AmpestraTheme.accent)
-        .foregroundStyle(prominent ? Color.white : AmpestraTheme.accentBright)
+        .foregroundStyle(prominent ? AmpestraTheme.onAccent : AmpestraTheme.accentBright)
         .disabled(store.isSendingCommand || !store.canControlPlayback)
         .opacity(store.isSendingCommand ? 0.55 : 1)
         .accessibilityLabel(title)
@@ -412,7 +413,7 @@ struct StandbyControlCard: View {
                         if store.isSendingCommand {
                             ProgressView()
                                 .controlSize(.small)
-                                .tint(.white)
+                                .tint(AmpestraTheme.onAccent)
                         } else {
                             Image(systemName: "power")
                         }
@@ -430,7 +431,7 @@ struct StandbyControlCard: View {
             }
         }
         .padding(compact ? 16 : 20)
-        .ampestraCard(cornerRadius: 28)
+        .ampestraCard()
     }
 
     private var guidance: String {
@@ -541,7 +542,7 @@ private struct ControlTileLabel: View {
         VStack(spacing: 2) {
             Text(title)
                 .font(.caption2.weight(.medium))
-                .foregroundStyle(.primary.opacity(0.68))
+                .foregroundStyle(.secondary)
             Text(value)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.primary)
@@ -555,7 +556,7 @@ private struct ControlTileLabel: View {
             if showsMenuIndicator {
                 Image(systemName: "chevron.down")
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(.primary.opacity(0.5))
+                    .foregroundStyle(.tertiary)
             }
         }
         .frame(width: sideSlotWidth)

@@ -100,7 +100,7 @@ struct ConnectionView: View {
             }
         }
         .padding(20)
-        .ampestraCard(cornerRadius: 24)
+        .ampestraCard()
     }
 
     private var discoveryEmptyState: some View {
@@ -164,7 +164,7 @@ struct ConnectionView: View {
                     Group {
                         if store.connectionState.isWorking {
                             ProgressView()
-                                .tint(.black)
+                                .tint(AmpestraTheme.onAccent)
                         } else {
                             Image(systemName: "arrow.right")
                                 .font(.system(size: 17, weight: .bold))
@@ -192,7 +192,7 @@ struct ConnectionView: View {
             }
         }
         .padding(20)
-        .ampestraCard(cornerRadius: 24)
+        .ampestraCard()
     }
 
     private var permissionCard: some View {
@@ -217,9 +217,15 @@ struct ConnectionView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
-        .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background(
+            Color.orange.opacity(0.08),
+            in: RoundedRectangle(
+                cornerRadius: AmpestraTheme.cardCornerRadius,
+                style: .continuous
+            )
+        )
         .overlay {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
+            RoundedRectangle(cornerRadius: AmpestraTheme.cardCornerRadius, style: .continuous)
                 .stroke(Color.orange.opacity(0.22), lineWidth: 1)
         }
     }
@@ -247,8 +253,19 @@ struct ConnectionView: View {
                     .foregroundStyle(.tertiary)
             }
             .padding(12)
-            .background(AmpestraTheme.control, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(
+                AmpestraTheme.control,
+                in: RoundedRectangle(
+                    cornerRadius: AmpestraTheme.nestedCornerRadius,
+                    style: .continuous
+                )
+            )
+            .contentShape(
+                RoundedRectangle(
+                    cornerRadius: AmpestraTheme.nestedCornerRadius,
+                    style: .continuous
+                )
+            )
         }
         .buttonStyle(.plain)
         .disabled(store.connectionState.isWorking)

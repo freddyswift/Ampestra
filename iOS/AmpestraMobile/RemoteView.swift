@@ -44,12 +44,12 @@ struct RemoteView: View {
                                 .transition(.move(edge: .top).combined(with: .opacity))
                         }
 
+                        primaryControls(compact: compact)
+                            .layoutPriority(1)
+
                         if showsPlayback {
                             PlaybackControlCard(store: store, compact: compact)
                         }
-
-                        primaryControls(compact: compact)
-                            .layoutPriority(1)
 
                         if store.speakerStatus == .powerOn, store.hasConfiguredSpeaker {
                             Spacer(minLength: compact ? 4 : 8)
@@ -62,7 +62,7 @@ struct RemoteView: View {
                     .frame(maxWidth: 540, maxHeight: .infinity, alignment: .top)
                     .padding(.horizontal, compact ? 14 : 18)
                     .padding(.top, compact ? 4 : 8)
-                    .padding(.bottom, max(12, proxy.safeAreaInsets.bottom + 8))
+                    .padding(.bottom, 12)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
             }

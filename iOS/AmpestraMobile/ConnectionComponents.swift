@@ -17,7 +17,7 @@ struct ConnectionIntroCard: View {
             Spacer(minLength: 0)
         }
         .padding(20)
-        .ampestraCard(cornerRadius: 24)
+        .ampestraCard()
     }
 }
 
