@@ -7,6 +7,7 @@ struct AmpestraControlsEntry: TimelineEntry {
     let speakerName: String
     let volumeStep: Int
     let isConfigured: Bool
+    var reading: WidgetSpeakerReading? = nil
 }
 
 struct AmpestraControlsProvider: TimelineProvider {
@@ -15,7 +16,8 @@ struct AmpestraControlsProvider: TimelineProvider {
             date: Date(),
             speakerName: "Living Room",
             volumeStep: 5,
-            isConfigured: true
+            isConfigured: true,
+            reading: .init(volume: 42, isPoweredOn: true, updatedAt: Date())
         )
     }
 
@@ -40,7 +42,8 @@ struct AmpestraControlsProvider: TimelineProvider {
             date: Date(),
             speakerName: speaker?.displayName ?? "Speaker Controls",
             volumeStep: speakerRecords.preferredVolumeStep(),
-            isConfigured: speaker != nil
+            isConfigured: speaker != nil && speaker?.requiresReconfirmation != true,
+            reading: speaker?.requiresReconfirmation == true ? nil : speaker?.widgetReading
         )
     }
 }
@@ -51,12 +54,11 @@ struct AmpestraControlsWidgetView: View {
     let entry: AmpestraControlsEntry
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 4) {
             header
-
-            Spacer(minLength: 0)
-
             if entry.isConfigured {
+                volumeReading
+                Spacer(minLength: 0)
                 controls
             } else {
                 Label("Connect a speaker in Ampestra", systemImage: "wifi.exclamationmark")
@@ -86,27 +88,57 @@ struct AmpestraControlsWidgetView: View {
                     .font(.headline)
                     .lineLimit(1)
 
-                Text(entry.isConfigured ? "Volume step: \(entry.volumeStep)" : "Not configured")
-                    .font(.caption2)
+            }
+        }
+    }
+
+    private var volumeReading: some View {
+        HStack(alignment: .center, spacing: 8) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(entry.reading.map { $0.isPoweredOn ? "\($0.volume)" : "—" } ?? "—")
+                        .font(.system(size: family == .systemSmall ? 30 : 32, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                    Text(entry.reading.map { !$0.isPoweredOn ? "Unavailable" : ($0.volume == 0 ? "Muted" : "/ 100") } ?? "Volume")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                if let reading = entry.reading {
+                    HStack(spacing: 3) {
+                        Text("Last known")
+                        Text(reading.updatedAt, style: .relative)
+                    }
+                    .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .accessibilityLabel(Text("Last updated \(reading.updatedAt.formatted())"))
+                } else {
+                    Text("Open app to sync")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            if family == .systemMedium {
+                Spacer(minLength: 0)
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text("VOLUME STEP").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("±\(entry.volumeStep)").font(.title3.weight(.semibold).monospacedDigit())
+                }
             }
         }
     }
 
     private var controls: some View {
-        HStack(spacing: family == .systemSmall ? 8 : 12) {
+        HStack(spacing: 6) {
             AmpestraWidgetActionButton(
                 title: "Down",
-                systemImage: "speaker.minus.fill",
+                systemImage: "minus",
                 intent: LowerSpeakerVolumeWidgetIntent(),
-                showsTitle: family == .systemMedium
-            )
-
-            AmpestraWidgetActionButton(
-                title: "Up",
-                systemImage: "speaker.plus.fill",
-                intent: RaiseSpeakerVolumeWidgetIntent(),
                 showsTitle: family == .systemMedium
             )
 
@@ -115,7 +147,14 @@ struct AmpestraControlsWidgetView: View {
                 systemImage: "speaker.slash.fill",
                 intent: MuteSpeakerWidgetIntent(),
                 showsTitle: family == .systemMedium,
-                role: .destructive
+                highlighted: entry.reading?.isPoweredOn == true && entry.reading?.volume == 0
+            )
+
+            AmpestraWidgetActionButton(
+                title: "Up",
+                systemImage: "plus",
+                intent: RaiseSpeakerVolumeWidgetIntent(),
+                showsTitle: family == .systemMedium
             )
         }
     }
@@ -126,7 +165,7 @@ private struct AmpestraWidgetActionButton<Intent: AppIntent>: View {
     let systemImage: String
     let intent: Intent
     let showsTitle: Bool
-    var role: ButtonRole?
+    var highlighted = false
 
     var body: some View {
         Button(intent: intent) {
@@ -139,12 +178,12 @@ private struct AmpestraWidgetActionButton<Intent: AppIntent>: View {
                         .font(.body.weight(.semibold))
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: 42)
+            .frame(maxWidth: .infinity, minHeight: 44)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .foregroundStyle(role == .destructive ? Color.red : Color.primary)
-        .background(.primary.opacity(0.08), in: .rect(cornerRadius: 12))
+        .foregroundStyle(highlighted ? Color.cyan : Color.primary)
+        .background(highlighted ? Color.cyan.opacity(0.18) : Color.primary.opacity(0.07), in: .rect(cornerRadius: 14))
         .accessibilityLabel(Text(title))
     }
 }
@@ -158,7 +197,7 @@ struct AmpestraControlsWidget: Widget {
             AmpestraControlsWidgetView(entry: entry)
         }
         .configurationDisplayName("Speaker Controls")
-        .description("Turn the volume up or down using your chosen step, or mute your speaker.")
+        .description("See the last known volume, adjust it by your chosen step, or mute your speaker.")
         .supportedFamilies([.systemSmall, .systemMedium])
     }
 }
@@ -168,4 +207,24 @@ struct AmpestraWidgets: WidgetBundle {
     var body: some Widget {
         AmpestraControlsWidget()
     }
+}
+
+#Preview("Small", as: .systemSmall) {
+    AmpestraControlsWidget()
+} timeline: {
+    AmpestraControlsEntry(date: Date(), speakerName: "Living Room", volumeStep: 5, isConfigured: true,
+                         reading: .init(volume: 42, isPoweredOn: true, updatedAt: Date()))
+    AmpestraControlsEntry(date: Date(), speakerName: "Living Room", volumeStep: 5, isConfigured: true)
+    AmpestraControlsEntry(date: Date(), speakerName: "Ampestra", volumeStep: 5, isConfigured: false)
+}
+
+#Preview("Medium", as: .systemMedium) {
+    AmpestraControlsWidget()
+} timeline: {
+    AmpestraControlsEntry(date: Date(), speakerName: "Living Room", volumeStep: 7, isConfigured: true,
+                         reading: .init(volume: 42, isPoweredOn: true, updatedAt: Date()))
+    AmpestraControlsEntry(date: Date(), speakerName: "Living Room", volumeStep: 7, isConfigured: true,
+                         reading: .init(volume: 0, isPoweredOn: true, updatedAt: Date()))
+    AmpestraControlsEntry(date: Date(), speakerName: "Living Room", volumeStep: 7, isConfigured: true,
+                         reading: .init(volume: 42, isPoweredOn: false, updatedAt: Date()))
 }

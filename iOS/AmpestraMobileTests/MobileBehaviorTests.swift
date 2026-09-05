@@ -6,6 +6,49 @@ import XCTest
 
 @MainActor
 final class MobileBehaviorTests: XCTestCase {
+    func testWidgetReadingPersistsZeroWithoutLosingMuteRestore() throws {
+        let defaults = makeDefaults()
+        let records = SpeakerRecordStore(defaults: defaults)
+        let saved = try XCTUnwrap(records.save(host: "speaker.local", macAddress: nil,
+                                               snapshot: speakerSnapshot(volume: 38)))
+        let date = Date().addingTimeInterval(120)
+        records.updateWidgetReading(id: saved.id, volume: 0, isPoweredOn: true, now: date)
+        let reloaded = try XCTUnwrap(SpeakerRecordStore(defaults: defaults).defaultSpeaker())
+        XCTAssertEqual(reloaded.widgetReading?.volume, 0)
+        XCTAssertEqual(reloaded.widgetReading?.updatedAt, date)
+        XCTAssertEqual(reloaded.lastAudibleVolume, 38)
+        records.remove(id: saved.id)
+        records.updateWidgetReading(id: saved.id, volume: 50, isPoweredOn: true)
+        XCTAssertNil(records.defaultSpeaker())
+    }
+
+    func testWidgetReadingThrottlesIdenticalPollsButNotChanges() throws {
+        let records = SpeakerRecordStore(defaults: makeDefaults())
+        let saved = try XCTUnwrap(records.save(host: "speaker.local", macAddress: nil,
+                                               snapshot: speakerSnapshot(volume: 38)))
+        let date = try XCTUnwrap(saved.widgetReading?.updatedAt)
+        records.updateWidgetReading(id: saved.id, volume: 38, isPoweredOn: true,
+                                    now: date.addingTimeInterval(10))
+        XCTAssertEqual(records.defaultSpeaker()?.widgetReading?.updatedAt, date)
+        records.updateWidgetReading(id: saved.id, volume: 38, isPoweredOn: false,
+                                    now: date.addingTimeInterval(11))
+        XCTAssertEqual(records.defaultSpeaker()?.widgetReading?.isPoweredOn, false)
+        records.updateWidgetReading(id: saved.id, volume: 38, isPoweredOn: false,
+                                    now: date.addingTimeInterval(80))
+        XCTAssertEqual(records.defaultSpeaker()?.widgetReading?.updatedAt, date.addingTimeInterval(80))
+    }
+
+    func testLegacySpeakerDoesNotInventWidgetVolumeFromRestoreValue() throws {
+        let records = SpeakerRecordStore(defaults: makeDefaults())
+        let saved = try XCTUnwrap(records.save(host: "speaker.local", macAddress: nil,
+                                               snapshot: speakerSnapshot(volume: 38)))
+        let data = try JSONEncoder().encode(saved)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        object.removeValue(forKey: "widgetReading")
+        let legacy = try JSONDecoder().decode(SavedSpeaker.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertNil(legacy.widgetReading)
+        XCTAssertEqual(legacy.lastAudibleVolume, 38)
+    }
     func testManualRefreshBurstSharesRequestWithPolling() async throws {
         let speaker = StubSpeaker(snapshots: [
             .success(speakerSnapshot()), .success(speakerSnapshot(volume: 50)),
@@ -786,6 +829,7 @@ final class MobileBehaviorTests: XCTestCase {
 
         XCTAssertEqual(confirmation.volume, 49)
         XCTAssertEqual(volumes, [49])
+        XCTAssertEqual(records.defaultSpeaker()?.widgetReading?.volume, 49)
     }
 
     func testSpeakerCommandServiceRestoresLastAudibleVolume() async throws {

@@ -1,5 +1,13 @@
 import Foundation
 import KEFCore
+import WidgetKit
+
+/// Last known speaker state, distinct from the volume saved for unmuting.
+struct WidgetSpeakerReading: Codable, Equatable, Sendable {
+    let volume: Int
+    let isPoweredOn: Bool
+    let updatedAt: Date
+}
 
 struct SavedSpeaker: Codable, Equatable, Identifiable, Sendable {
     let id: String
@@ -11,6 +19,7 @@ struct SavedSpeaker: Codable, Equatable, Identifiable, Sendable {
     var lastSeenAt: Date
     var lastAudibleVolume: Int?
     var requiresReconfirmation: Bool? = nil
+    var widgetReading: WidgetSpeakerReading? = nil
 
     var connectionHosts: [String] {
         // Historical DHCP addresses are not proof of speaker identity.
@@ -123,11 +132,17 @@ final class SpeakerRecordStore: @unchecked Sendable {
                 records.append(record)
             }
 
+            if let index = records.firstIndex(where: { $0.id == record.id }) {
+                records[index].widgetReading = WidgetSpeakerReading(
+                    volume: VolumePolicy.clampedVolume(snapshot.volume),
+                    isPoweredOn: snapshot.status == .powerOn, updatedAt: Date()
+                )
+            }
             persistLocked(records)
             if makeDefault {
                 defaults.set(record.id, forKey: SpeakerPreferenceKeys.defaultSpeakerID)
             }
-            return record
+            return records.first { $0.id == record.id }
         }
     }
 
@@ -174,6 +189,27 @@ final class SpeakerRecordStore: @unchecked Sendable {
             defaults.removeObject(forKey: SpeakerPreferenceKeys.defaultSpeakerID)
             defaults.removeObject(forKey: SpeakerPreferenceKeys.savedHost)
             defaults.removeObject(forKey: SpeakerPreferenceKeys.savedMACAddress)
+        }
+    }
+
+    func updateWidgetReading(id: String, volume: Int, isPoweredOn: Bool, now: Date = Date()) {
+        let shouldReload = lock.withLock {
+            var records = loadRecordsLocked()
+            guard let index = records.firstIndex(where: { $0.id == id }),
+                  records[index].requiresReconfirmation != true else { return false }
+            let previous = records[index].widgetReading
+            let volume = VolumePolicy.clampedVolume(volume)
+            // Avoid requesting a timeline reload for every identical foreground poll.
+            guard previous?.volume != volume || previous?.isPoweredOn != isPoweredOn
+                    || now.timeIntervalSince(previous?.updatedAt ?? .distantPast) >= 60 else { return false }
+            records[index].widgetReading = WidgetSpeakerReading(
+                volume: volume, isPoweredOn: isPoweredOn, updatedAt: now
+            )
+            persistLocked(records)
+            return true
+        }
+        if shouldReload {
+            WidgetCenter.shared.reloadTimelines(ofKind: AmpestraWidgetConstants.controlsKind)
         }
     }
 

@@ -140,6 +140,9 @@ actor SpeakerCommandService {
             await commandQueue.clearVolume(speakerID: speakerID)
         default: break
         }
+        speakerRecords.updateWidgetReading(
+            id: result.speakerID, volume: result.volume, isPoweredOn: result.status == .powerOn
+        )
         return result
     }
 

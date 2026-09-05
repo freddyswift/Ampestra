@@ -519,6 +519,12 @@ final class RemoteStore: ObservableObject {
     }
 
     func apply(_ snapshot: SpeakerSnapshot) {
+        if !isDemoMode, !isAdjustingVolume, let id = currentSpeakerID,
+           speakerRecords.speaker(id: id)?.accepts(snapshot) == true {
+            speakerRecords.updateWidgetReading(
+                id: id, volume: snapshot.volume, isPoweredOn: snapshot.status == .powerOn
+            )
+        }
         updateIfChanged(\.speakerName, snapshot.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? "KEF Speaker"
             : snapshot.name)
