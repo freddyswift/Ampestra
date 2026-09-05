@@ -8,6 +8,12 @@ struct AmpestraMobileApp: App {
     @StateObject private var store: RemoteStore
 
     init() {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--demo-saved-speakers") {
+            _store = StateObject(wrappedValue: RemoteStore())
+            return
+        }
+        #endif
         if AmpestraSharedDefaults.migrateFromStandardDefaultsIfNeeded() {
             WidgetCenter.shared.reloadTimelines(ofKind: AmpestraWidgetConstants.controlsKind)
         }

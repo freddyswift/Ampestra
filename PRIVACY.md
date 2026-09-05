@@ -1,6 +1,6 @@
 # Privacy
 
-Last updated: 24 August 2026
+Last updated: 5 September 2026
 
 Ampestra is a local-first, unofficial remote for compatible KEF wireless
 speakers. It does not require an Ampestra account and does not include
@@ -43,7 +43,9 @@ Source builds do not perform in-app update checks.
 
 Ampestra stores its preferences on the iPhone or Mac. Depending on the enabled
 features, those preferences can include the last selected host, a discovered
-MAC address, trusted speaker hosts, control settings, and onboarding state.
+MAC address, trusted speaker hosts, control settings, per-speaker volume limits
+and named presets, widget speaker selection, and onboarding state. These
+settings are local to each device and are not synced by Ampestra.
 Choosing **Forget speaker** removes the saved speaker from the iPhone app.
 Deleting the iPhone app normally removes its local container, subject to Apple
 backup behaviour. Deleting the macOS application bundle does not necessarily
@@ -60,7 +62,14 @@ cleared separately.
 
 ## Diagnostics and reports
 
-Ampestra does not automatically upload diagnostics. If you submit an issue or
+Ampestra does not automatically upload diagnostics. Settings offers a report
+you can review and copy; iPhone also offers the system share sheet. The iPhone
+report includes app and OS versions, connection status, and up to 20 recent
+error categories held in memory for the current session. Generated reports
+exclude speaker names, addresses, identifiers, playback details, and raw error
+messages.
+
+If you submit an issue or
 security report, you choose what to share. Remove private hostnames, IP
 addresses, MAC addresses, network captures, and now-playing information unless
 they are essential to the report.

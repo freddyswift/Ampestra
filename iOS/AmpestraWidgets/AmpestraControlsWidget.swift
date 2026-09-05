@@ -8,9 +8,10 @@ struct AmpestraControlsEntry: TimelineEntry {
     let volumeStep: Int
     let isConfigured: Bool
     var reading: WidgetSpeakerReading? = nil
+    var speakerID: String? = nil
 }
 
-struct AmpestraControlsProvider: TimelineProvider {
+struct AmpestraControlsProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> AmpestraControlsEntry {
         AmpestraControlsEntry(
             date: Date(),
@@ -21,29 +22,24 @@ struct AmpestraControlsProvider: TimelineProvider {
         )
     }
 
-    func getSnapshot(
-        in context: Context,
-        completion: @escaping (AmpestraControlsEntry) -> Void
-    ) {
-        completion(context.isPreview ? placeholder(in: context) : currentEntry())
+    func snapshot(for configuration: SelectWidgetSpeakerIntent, in context: Context) async -> AmpestraControlsEntry {
+        context.isPreview ? placeholder(in: context) : currentEntry(configuration: configuration)
     }
 
-    func getTimeline(
-        in context: Context,
-        completion: @escaping (Timeline<AmpestraControlsEntry>) -> Void
-    ) {
-        completion(Timeline(entries: [currentEntry()], policy: .never))
+    func timeline(for configuration: SelectWidgetSpeakerIntent, in context: Context) async -> Timeline<AmpestraControlsEntry> {
+        Timeline(entries: [currentEntry(configuration: configuration)], policy: .never)
     }
 
-    private func currentEntry() -> AmpestraControlsEntry {
+    private func currentEntry(configuration: SelectWidgetSpeakerIntent) -> AmpestraControlsEntry {
         let speakerRecords = SpeakerRecordStore.shared
-        let speaker = speakerRecords.defaultSpeaker()
+        let speaker = configuration.selectedSpeaker(in: speakerRecords)
         return AmpestraControlsEntry(
             date: Date(),
-            speakerName: speaker?.displayName ?? "Speaker Controls",
+            speakerName: speaker?.displayName ?? configuration.speaker?.name ?? "Speaker Controls",
             volumeStep: speakerRecords.preferredVolumeStep(),
             isConfigured: speaker != nil && speaker?.requiresReconfirmation != true,
-            reading: speaker?.requiresReconfirmation == true ? nil : speaker?.widgetReading
+            reading: speaker?.requiresReconfirmation == true ? nil : speaker?.widgetReading,
+            speakerID: speaker?.id ?? configuration.speaker?.id
         )
     }
 }
@@ -61,7 +57,7 @@ struct AmpestraControlsWidgetView: View {
                 Spacer(minLength: 0)
                 controls
             } else {
-                Label("Connect a speaker in Ampestra", systemImage: "wifi.exclamationmark")
+                Label(entry.speakerID == nil ? "Connect a speaker in Ampestra" : "Reconnect in Ampestra or edit this widget", systemImage: "wifi.exclamationmark")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -138,14 +134,14 @@ struct AmpestraControlsWidgetView: View {
             AmpestraWidgetActionButton(
                 title: "Down",
                 systemImage: "minus",
-                intent: LowerSpeakerVolumeWidgetIntent(),
+                intent: LowerSpeakerVolumeWidgetIntent(speakerID: entry.speakerID),
                 showsTitle: family == .systemMedium
             )
 
             AmpestraWidgetActionButton(
-                title: "Mute",
-                systemImage: "speaker.slash.fill",
-                intent: MuteSpeakerWidgetIntent(),
+                title: entry.reading?.volume == 0 ? "Unmute" : "Mute",
+                systemImage: entry.reading?.volume == 0 ? "speaker.wave.2.fill" : "speaker.slash.fill",
+                intent: MuteSpeakerWidgetIntent(speakerID: entry.speakerID),
                 showsTitle: family == .systemMedium,
                 highlighted: entry.reading?.isPoweredOn == true && entry.reading?.volume == 0
             )
@@ -153,7 +149,7 @@ struct AmpestraControlsWidgetView: View {
             AmpestraWidgetActionButton(
                 title: "Up",
                 systemImage: "plus",
-                intent: RaiseSpeakerVolumeWidgetIntent(),
+                intent: RaiseSpeakerVolumeWidgetIntent(speakerID: entry.speakerID),
                 showsTitle: family == .systemMedium
             )
         }
@@ -190,14 +186,15 @@ private struct AmpestraWidgetActionButton<Intent: AppIntent>: View {
 
 struct AmpestraControlsWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(
+        AppIntentConfiguration(
             kind: AmpestraWidgetConstants.controlsKind,
+            intent: SelectWidgetSpeakerIntent.self,
             provider: AmpestraControlsProvider()
         ) { entry in
             AmpestraControlsWidgetView(entry: entry)
         }
         .configurationDisplayName("Speaker Controls")
-        .description("See the last known volume, adjust it by your chosen step, or mute your speaker.")
+        .description("Choose a saved speaker, see its last known volume, adjust it, or toggle mute.")
         .supportedFamilies([.systemSmall, .systemMedium])
     }
 }

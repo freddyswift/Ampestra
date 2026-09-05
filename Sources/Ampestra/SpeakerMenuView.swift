@@ -417,16 +417,40 @@ struct SpeakerMenuView: View {
     }
 
     private var volumeSection: some View {
-        MenuBarVolumeControl(
-            volume: $sliderVolume,
-            step: appState.volumeSliderStep,
-            isDisabled: appState.isBusy || appState.status != .powerOn,
-            volumeChanged: { newVolume in
-                guard newVolume != appState.displayedVolume else { return }
-                appState.commitVolume(newVolume)
-            },
-            muteAction: appState.toggleSpeakerMute
-        )
+        VStack(spacing: 6) {
+            MenuBarVolumeControl(
+                volume: $sliderVolume,
+                step: appState.volumeSliderStep,
+                isDisabled: appState.isBusy || appState.status != .powerOn,
+                volumeChanged: { newVolume in
+                    guard newVolume != appState.displayedVolume else { return }
+                    let target = appState.speakerVolumePreferences.clampedVolume(newVolume)
+                    if newVolume != target { sliderVolume = Double(target) }
+                    appState.commitVolume(target)
+                },
+                muteAction: appState.toggleSpeakerMute
+            )
+            if !appState.speakerVolumePreferences.presets.isEmpty {
+                HStack {
+                    Menu("Presets") {
+                        ForEach(appState.speakerVolumePreferences.presets) { preset in
+                            Button("\(String(preset.name.prefix(20))) · \(appState.speakerVolumePreferences.clampedVolume(preset.volume))%") {
+                                appState.applyVolumePreset(preset)
+                            }
+                        }
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .disabled(appState.isBusy || appState.status != .powerOn)
+                    Spacer()
+                    if appState.maximumSpeakerVolume < 100 {
+                        Text("Limit \(appState.maximumSpeakerVolume)%")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 10)
+            }
+        }
     }
 
     private var playbackSection: some View {

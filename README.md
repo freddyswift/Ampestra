@@ -89,6 +89,9 @@ The original LS50 Wireless and LSX gen 1 are not supported.
 - Finds speakers with Bonjour auto-discovery
 - Supports manual local host/IP fallback
 - Controls power, source, volume, and playback
+- Saves optional per-speaker volume limits and editable Quiet/Listening presets
+- Provides a saved-speaker switcher on iPhone, with a separate default for Siri
+- Lets each iOS widget target a saved speaker and toggle mute/unmute
 - Provides native iOS 27 Siri and Shortcuts actions that can run in the
   background and address saved speakers by name
 - Provides an iPhone remote with large volume controls and a foreground-only
@@ -97,6 +100,27 @@ The original LS50 Wireless and LSX gen 1 are not supported.
   Bluetooth playback
 - Can route keyboard volume keys to the speaker, or auto-switch them back to macOS when playback is paused
 - Sends Wake-on-LAN when a speaker MAC address is discovered
+
+## Volume limits, presets, and saved speakers
+
+On iPhone, open **Settings → Volume limit & presets** for the selected speaker.
+On Mac, use **Settings → General → Speaker Volume**, then choose presets from
+the menu bar remote. Limits are off by default and apply to volume commands
+sent by Ampestra, including mute restoration. Limits do not change the volume
+immediately or prevent another app or the speaker's own controls from changing
+it. Settings are stored locally on each device and are not synced between Mac
+and iPhone.
+
+The iPhone connection screen lists saved speakers even when discovery cannot
+find them. Switching the remote does not change the default speaker; use
+**Make default** to choose the default for Siri. Edit a widget to select its
+speaker. A widget assigned to a forgotten speaker asks for reconnection or
+reconfiguration instead of controlling another speaker.
+
+Both platforms can produce a diagnostic report from Settings. The iPhone
+report includes up to 20 recent error categories from the current session and
+excludes addresses, speaker identifiers, names, playback details, and raw error
+messages. It can be reviewed, copied, or shared.
 
 ## Permissions
 

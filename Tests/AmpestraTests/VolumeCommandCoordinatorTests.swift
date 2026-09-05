@@ -4,6 +4,29 @@ import XCTest
 
 @MainActor
 final class VolumeCommandCoordinatorTests: XCTestCase {
+    func testRechecksVolumeCeilingImmediatelyBeforeQueuedWrite() async {
+        let speaker = FakeSpeakerClient(host: "speaker.local")
+        let coordinator = VolumeCommandCoordinator()
+        let sleeper = TestSleeper()
+        var ceiling = 100
+        let sent = expectation(description: "clamped command sent")
+        coordinator.submit(
+            volume: 80, speaker: speaker,
+            timing: .test { try await sleeper.sleep($0) },
+            normalizeBeforeSending: { min($0, ceiling) },
+            didSendLatest: { _ in sent.fulfill() },
+            didFailLatest: { _, _ in XCTFail("Unexpected failure") }
+        )
+        await sleeper.waitForSleeps(count: 1)
+        ceiling = 19
+        await sleeper.resumeAll()
+        await sleeper.waitForSleeps(count: 2)
+        await sleeper.resumeAll()
+        await fulfillment(of: [sent], timeout: 1)
+        XCTAssertEqual(speaker.setVolumes, [19])
+        coordinator.cancel()
+    }
+
     func testCancellationSuppressesLateNetworkFailure() async {
         let started = expectation(description: "Write started")
         let finished = expectation(description: "Write returned after cancellation")

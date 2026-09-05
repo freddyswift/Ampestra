@@ -9,17 +9,17 @@ final class RemoteStore: ObservableObject {
     typealias ClientFactory = @Sendable (String) -> KEFSpeakerClient
     typealias Sleep = @Sendable (Duration) async throws -> Void
 
-    @Published private(set) var connectionState: SpeakerConnectionState = .disconnected
-    @Published private(set) var currentHost: String?
+    @Published internal(set) var connectionState: SpeakerConnectionState = .disconnected
+    @Published internal(set) var currentHost: String?
     @Published private(set) var speakerName = "KEF Speaker"
     @Published private(set) var speakerModel = ""
-    @Published private(set) var speakerStatus: SpeakerStatus = .standby
-    @Published private(set) var source: SpeakerSource = .wifi
+    @Published internal(set) var speakerStatus: SpeakerStatus = .standby
+    @Published internal(set) var source: SpeakerSource = .wifi
     @Published private(set) var volume = 0
-    @Published private(set) var isSendingCommand = false
-    @Published private(set) var isAdjustingVolume = false
-    @Published private(set) var localNetworkPermissionDenied = false
-    @Published private(set) var lastError: String?
+    @Published internal(set) var isSendingCommand = false
+    @Published internal(set) var isAdjustingVolume = false
+    @Published internal(set) var localNetworkPermissionDenied = false
+    @Published internal(set) var lastError: String?
     @Published private(set) var notice: String?
     @Published private(set) var isPlaying = false
     @Published private(set) var nowPlaying: NowPlayingInfo?
@@ -51,30 +51,30 @@ final class RemoteStore: ObservableObject {
     let discovery: KEFDiscovery
     let hardwareButtons: HardwareVolumeButtonController
 
-    private let defaults: UserDefaults
-    private let speakerRecords: SpeakerRecordStore
-    private let clientFactory: ClientFactory
+    let defaults: UserDefaults
+    let speakerRecords: SpeakerRecordStore
+    let clientFactory: ClientFactory
     private let commands: SpeakerCommandService
-    private var currentSpeakerID: String?
+    @Published internal(set) var currentSpeakerID: String?
     private var volumeTasks: [UUID: Task<Void, Never>] = [:]
     private var lastVolumeTask: Task<Void, Never>?
-    private let reconnectPolicy: ReconnectPolicy
-    private let pollingInterval: Duration
-    private let sleep: Sleep
-    private var speaker: KEFSpeakerClient?
-    private var speakerMACAddress: String?
-    private var connectionTask: Task<Void, Never>?
-    private var pollingTask: Task<Void, Never>?
-    private var refreshTask: Task<Void, Never>?
+    let reconnectPolicy: ReconnectPolicy
+    let pollingInterval: Duration
+    let sleep: Sleep
+    var speaker: KEFSpeakerClient?
+    var speakerMACAddress: String?
+    var connectionTask: Task<Void, Never>?
+    var pollingTask: Task<Void, Never>?
+    var refreshTask: Task<Void, Never>?
     private var commandTask: Task<Void, Never>?
     private var commandGeneration = 0
     private var noticeTask: Task<Void, Never>?
-    private var appIsActive = false
-    private var connectionGeneration = 0
-    private var consecutiveFailures = 0
-    private var mutedRestoreVolume: Int?
-    private var isPreviewingVolume = false
-    private let isDemoMode: Bool
+    var appIsActive = false
+    var connectionGeneration = 0
+    var consecutiveFailures = 0
+    var mutedRestoreVolume: Int?
+    var isPreviewingVolume = false
+    let isDemoMode: Bool
 
     init(
         defaults: UserDefaults = .standard,
@@ -86,8 +86,16 @@ final class RemoteStore: ObservableObject {
         sleep: @escaping Sleep = { duration in try await Task.sleep(for: duration) },
         clientFactory: @escaping ClientFactory = { KEFSpeakerAPI(host: $0) }
     ) {
-        self.defaults = defaults
-        let records = speakerRecords ?? SpeakerRecordStore(defaults: defaults)
+        #if DEBUG
+        let useSavedSpeakerDemo = ProcessInfo.processInfo.arguments.contains("--demo-saved-speakers")
+        #else
+        let useSavedSpeakerDemo = false
+        #endif
+        let effectiveDefaults = useSavedSpeakerDemo
+            ? UserDefaults(suiteName: "Ampestra.Demo.\(UUID().uuidString)")! : defaults
+        self.defaults = effectiveDefaults
+        let records = useSavedSpeakerDemo ? SpeakerRecordStore(defaults: effectiveDefaults)
+            : (speakerRecords ?? SpeakerRecordStore(defaults: effectiveDefaults))
         self.speakerRecords = records
         self.commands = SpeakerCommandService(speakerRecords: records, clientFactory: clientFactory)
         self.discovery = discovery ?? KEFDiscovery()
@@ -97,17 +105,17 @@ final class RemoteStore: ObservableObject {
         self.sleep = sleep
         self.clientFactory = clientFactory
 
-        manualHost = defaults.string(forKey: SpeakerPreferenceKeys.manualHost) ?? ""
-        volumeStep = defaults.object(forKey: SpeakerPreferenceKeys.volumeStep) == nil
+        manualHost = effectiveDefaults.string(forKey: SpeakerPreferenceKeys.manualHost) ?? ""
+        volumeStep = effectiveDefaults.object(forKey: SpeakerPreferenceKeys.volumeStep) == nil
             ? 5
-            : VolumePolicy.clampedStepSize(defaults.integer(forKey: SpeakerPreferenceKeys.volumeStep))
-        hardwareButtonsEnabled = defaults.object(forKey: SpeakerPreferenceKeys.hardwareButtonsEnabled) == nil
+            : VolumePolicy.clampedStepSize(effectiveDefaults.integer(forKey: SpeakerPreferenceKeys.volumeStep))
+        hardwareButtonsEnabled = effectiveDefaults.object(forKey: SpeakerPreferenceKeys.hardwareButtonsEnabled) == nil
             ? true
-            : defaults.bool(forKey: SpeakerPreferenceKeys.hardwareButtonsEnabled)
-        mutePhoneOnExit = defaults.bool(forKey: SpeakerPreferenceKeys.mutePhoneOnExit)
+            : effectiveDefaults.bool(forKey: SpeakerPreferenceKeys.hardwareButtonsEnabled)
+        mutePhoneOnExit = effectiveDefaults.bool(forKey: SpeakerPreferenceKeys.mutePhoneOnExit)
 
         #if DEBUG
-        isDemoMode = ProcessInfo.processInfo.arguments.contains("--demo-mode")
+        isDemoMode = ProcessInfo.processInfo.arguments.contains("--demo-mode") || useSavedSpeakerDemo
         #else
         isDemoMode = false
         #endif
@@ -135,6 +143,18 @@ final class RemoteStore: ObservableObject {
                 )
             )
             connectionState = .connected
+            if useSavedSpeakerDemo {
+                currentSpeakerID = records.save(
+                    host: "192.168.1.42", macAddress: nil,
+                    snapshot: SpeakerSnapshot(status: .powerOn, source: .wifi, volume: 42,
+                                              name: "Living Room", model: "LS60")
+                )?.id
+                _ = records.save(
+                    host: "192.168.1.43", macAddress: nil,
+                    snapshot: SpeakerSnapshot(status: .powerOn, source: .wifi, volume: 25,
+                                              name: "Office", model: "LSXII"), makeDefault: false
+                )
+            }
 
             if !demoIsStandby,
                !ProcessInfo.processInfo.arguments.contains("--demo-no-now-playing") {
@@ -146,6 +166,36 @@ final class RemoteStore: ObservableObject {
                 )
             }
         }
+    }
+
+    var savedSpeakers: [SavedSpeaker] { speakerRecords.allSpeakers() }
+    var defaultSpeakerID: String? { speakerRecords.defaultSpeaker()?.id }
+    var defaultSpeakerName: String { speakerRecords.defaultSpeaker()?.displayName ?? "KEF Speaker" }
+    var currentVolumePreferences: SpeakerVolumePreferences {
+        currentSpeakerID.map { speakerRecords.volumePreferences(for: $0) } ?? SpeakerVolumePreferences()
+    }
+    internal(set) var diagnosticHistory = MobileDiagnosticHistory()
+
+    func makeDefaultSpeaker(id: String) {
+        guard speakerRecords.setDefaultSpeaker(id: id) else { return }
+        objectWillChange.send()
+        WidgetCenter.shared.reloadTimelines(ofKind: AmpestraWidgetConstants.controlsKind)
+        AmpestraShortcuts.updateAppShortcutParameters()
+    }
+
+    func connect(to saved: SavedSpeaker) {
+        guard let record = speakerRecords.speaker(id: saved.id) else { return }
+        if isDemoMode {
+            currentHost = record.host
+            currentSpeakerID = record.id
+            apply(SpeakerSnapshot(status: .powerOn, source: .wifi,
+                                  volume: record.widgetReading?.volume ?? 25,
+                                  name: record.name, model: record.model))
+            connectionState = .connected
+            return
+        }
+        connect(to: record.host, macAddress: record.macAddress, confirmingIdentity: false,
+                expectedSpeakerID: record.id)
     }
 
     var hasConfiguredSpeaker: Bool {
@@ -164,189 +214,9 @@ final class RemoteStore: ObservableObject {
         volume == 0
     }
 
-    func setAppActive(_ isActive: Bool, mutePhoneOnStop: Bool = false) {
-        guard appIsActive != isActive else {
-            if !isActive, mutePhoneOnStop, mutePhoneOnExit {
-                hardwareButtons.stop(mutePhone: true)
-            }
-            return
-        }
-        appIsActive = isActive
-
-        if isActive {
-            localNetworkPermissionDenied = false
-            if isDemoMode {
-                updateHardwareButtonCapture()
-            } else if let speaker {
-                refresh(using: speaker)
-                beginPolling(using: speaker)
-                updateHardwareButtonCapture()
-            } else if let host = currentHost ?? savedSpeaker?.host {
-                connect(to: host, macAddress: savedSpeaker?.macAddress, confirmingIdentity: false)
-            }
-        } else {
-            connectionGeneration += 1
-            connectionTask?.cancel()
-            connectionTask = nil
-            pollingTask?.cancel()
-            pollingTask = nil
-            cancelRefresh()
-            cancelCommand()
-            cancelVolumeTasks()
-            isAdjustingVolume = false
-            isPreviewingVolume = false
-            isSendingCommand = false
-            discovery.stopDiscovery()
-            hardwareButtons.stop(mutePhone: mutePhoneOnStop && mutePhoneOnExit)
-        }
-    }
-
-    func startDiscovery() {
-        guard appIsActive else { return }
-        localNetworkPermissionDenied = false
-        lastError = nil
-        discovery.startDiscovery()
-    }
-
-    func stopDiscovery() {
-        discovery.stopDiscovery()
-    }
-
-    func connect(to discoveredSpeaker: DiscoveredSpeaker) {
-        connect(to: discoveredSpeaker.host, macAddress: discoveredSpeaker.macAddress)
-    }
-
-    func connect(to rawHost: String, macAddress: String? = nil, confirmingIdentity: Bool = true) {
-        guard let host = ManualHostValidator.normalizedHost(rawHost) else {
-            connectionState = .failed(message: "Enter a private IP address or .local hostname.")
-            lastError = "That speaker address is not a valid local-network address."
-            return
-        }
-
-        manualHost = host
-        currentHost = host
-        defaults.set(host, forKey: SpeakerPreferenceKeys.manualHost)
-
-        guard appIsActive else {
-            return
-        }
-
-        connectionGeneration += 1
-        let generation = connectionGeneration
-        connectionTask?.cancel()
-        pollingTask?.cancel()
-        cancelRefresh()
-        cancelCommand()
-        cancelVolumeTasks()
-        isAdjustingVolume = false
-        isPreviewingVolume = false
-        speaker = nil
-        speakerMACAddress = nil
-        mutedRestoreVolume = nil
-        clearPlayerState()
-        hardwareButtons.stop()
-        discovery.stopDiscovery()
-        consecutiveFailures = 0
-        lastError = nil
-        connectionState = .connecting
-        let candidate = clientFactory(host)
-        let savedIdentity = speakerRecords.allSpeakers().first { $0.host == host }
-        currentSpeakerID = nil
-
-        connectionTask = Task { @MainActor [weak self, candidate] in
-            guard let self else { return }
-            do {
-                let snapshot = try await candidate.getSnapshot()
-                guard !Task.isCancelled,
-                      self.appIsActive,
-                      self.connectionGeneration == generation else { return }
-
-                if !confirmingIdentity, let savedIdentity, !savedIdentity.accepts(snapshot) {
-                    throw SpeakerCommandError.speakerIdentityChanged
-                }
-                self.speaker = candidate
-                self.speakerMACAddress = macAddress
-                self.apply(snapshot)
-                self.connectionState = .connected
-                self.localNetworkPermissionDenied = false
-                self.manualHost = host
-                self.defaults.set(host, forKey: SpeakerPreferenceKeys.manualHost)
-                self.currentSpeakerID = self.speakerRecords.save(
-                    host: host,
-                    macAddress: macAddress,
-                    snapshot: snapshot
-                )?.id
-                WidgetCenter.shared.reloadTimelines(ofKind: AmpestraWidgetConstants.controlsKind)
-                AmpestraShortcuts.updateAppShortcutParameters()
-                self.beginPolling(using: candidate)
-                self.updateHardwareButtonCapture()
-                self.showNotice("Connected to \(snapshot.name)")
-                await self.refreshPlayerState(using: candidate, snapshot: snapshot)
-            } catch is CancellationError {
-                return
-            } catch {
-                guard self.connectionGeneration == generation else { return }
-                self.speaker = nil
-                self.connectionState = .failed(message: "Couldn’t reach \(host)")
-                self.lastError = self.message(for: error)
-                self.updateHardwareButtonCapture()
-            }
-        }
-    }
-
-    func reconnectNow() {
-        guard let host = currentHost ?? savedSpeaker?.host else { return }
-        connect(
-            to: host,
-            macAddress: speakerMACAddress ?? savedSpeaker?.macAddress,
-            confirmingIdentity: false
-        )
-    }
-
-    func disconnect(forget: Bool = false) {
-        let forgottenID = currentSpeakerID ?? speakerRecords.allSpeakers().first { $0.host == currentHost }?.id
-        connectionGeneration += 1
-        connectionTask?.cancel()
-        pollingTask?.cancel()
-        cancelRefresh()
-        cancelCommand()
-        cancelVolumeTasks()
-        discovery.stopDiscovery()
-        speaker = nil
-        speakerMACAddress = nil
-        mutedRestoreVolume = nil
-        currentHost = nil
-        currentSpeakerID = nil
-        connectionState = .disconnected
-        lastError = nil
-        isSendingCommand = false
-        isAdjustingVolume = false
-        isPreviewingVolume = false
-        clearPlayerState()
-        hardwareButtons.stop()
-
-        if forget {
-            if let forgottenID { speakerRecords.remove(id: forgottenID) }
-            manualHost = ""
-            defaults.removeObject(forKey: SpeakerPreferenceKeys.manualHost)
-            WidgetCenter.shared.reloadTimelines(ofKind: AmpestraWidgetConstants.controlsKind)
-            AmpestraShortcuts.updateAppShortcutParameters()
-        }
-    }
-
-    func refreshNow() {
-        if isDemoMode {
-            showNotice("Speaker status is up to date")
-            return
-        }
-
-        guard let speaker else { return }
-        refresh(using: speaker)
-    }
-
     func setVolume(_ requestedVolume: Int) {
         isPreviewingVolume = false
-        let target = VolumePolicy.clampedVolume(requestedVolume)
+        let target = currentVolumePreferences.clampedVolume(requestedVolume)
         if isDemoMode {
             volume = target
             return
@@ -397,7 +267,7 @@ final class RemoteStore: ObservableObject {
         lastVolumeTask = task
     }
 
-    private func cancelVolumeTasks() {
+    func cancelVolumeTasks() {
         volumeTasks.values.forEach { $0.cancel() }
         volumeTasks.removeAll()
         lastVolumeTask = nil
@@ -406,7 +276,7 @@ final class RemoteStore: ObservableObject {
     func previewVolume(_ requestedVolume: Int) {
         guard canControlSpeaker || isDemoMode else { return }
         isPreviewingVolume = true
-        volume = VolumePolicy.clampedVolume(requestedVolume)
+        volume = currentVolumePreferences.clampedVolume(requestedVolume)
     }
 
     func commitPreviewedVolume() {
@@ -416,7 +286,7 @@ final class RemoteStore: ObservableObject {
     func adjustVolume(direction: Int, originatedFromHardware: Bool = false) {
         guard direction != 0, canControlSpeaker || isDemoMode else { return }
         let amount = direction.signum() * volumeStep
-        let target = VolumePolicy.clampedVolume(volume + amount)
+        let target = currentVolumePreferences.clampedVolume(volume + amount)
         if isDemoMode { volume = target; return }
         guard let id = currentSpeakerID else { return }
         volume = target
@@ -541,79 +411,6 @@ final class RemoteStore: ObservableObject {
         updateHardwareButtonCapture()
     }
 
-    private var savedSpeaker: SavedSpeaker? {
-        speakerRecords.defaultSpeaker()
-    }
-
-    private func beginPolling(using speaker: KEFSpeakerClient) {
-        pollingTask?.cancel()
-        guard appIsActive, !isDemoMode else { return }
-        let generation = connectionGeneration
-
-        pollingTask = Task { @MainActor [weak self, weak speaker] in
-            guard let self, let speaker else { return }
-
-            while !Task.isCancelled,
-                  self.appIsActive,
-                  self.connectionGeneration == generation,
-                  self.speaker === speaker {
-                let delay = self.consecutiveFailures == 0
-                    ? self.pollingInterval
-                    : self.reconnectPolicy.delay(afterFailure: self.consecutiveFailures)
-                do {
-                    try await self.sleep(delay)
-                    guard !Task.isCancelled, self.connectionGeneration == generation else { return }
-                } catch {
-                    return
-                }
-                await self.refresh(using: speaker).value
-            }
-        }
-    }
-
-    /// Manual refreshes and polling share the same request, including player metadata.
-    @discardableResult
-    private func refresh(using speaker: KEFSpeakerClient) -> Task<Void, Never> {
-        if let refreshTask { return refreshTask }
-        let generation = connectionGeneration
-        let task = Task { @MainActor [weak self, weak speaker] in
-            guard let self, let speaker else { return }
-            defer {
-                if self.connectionGeneration == generation {
-                    self.refreshTask = nil
-                }
-            }
-            guard !Task.isCancelled, self.appIsActive,
-                  self.connectionGeneration == generation, self.speaker === speaker else { return }
-            do {
-                let snapshot = try await speaker.getSnapshot()
-                guard !Task.isCancelled, self.connectionGeneration == generation,
-                      self.speaker === speaker else { return }
-                self.consecutiveFailures = 0
-                self.updateIfChanged(\.connectionState, .connected)
-                self.updateIfChanged(\.lastError, nil)
-                self.apply(snapshot)
-                await self.refreshPlayerState(using: speaker, snapshot: snapshot)
-            } catch is CancellationError {
-                return
-            } catch {
-                guard !Task.isCancelled, self.connectionGeneration == generation,
-                      self.speaker === speaker else { return }
-                self.consecutiveFailures += 1
-                self.connectionState = .reconnecting(attempt: self.consecutiveFailures)
-                self.lastError = self.message(for: error)
-                self.updateHardwareButtonCapture()
-            }
-        }
-        refreshTask = task
-        return task
-    }
-
-    private func cancelRefresh() {
-        refreshTask?.cancel()
-        refreshTask = nil
-    }
-
     private func performCommand(
         successNotice: String,
         action: @escaping @MainActor () async throws -> Void
@@ -657,37 +454,14 @@ final class RemoteStore: ObservableObject {
         }
     }
 
-    private func cancelCommand() {
+    func cancelCommand() {
         commandGeneration += 1
         commandTask?.cancel()
         commandTask = nil
         isSendingCommand = false
     }
 
-    private func refreshPlayerState(
-        using speaker: KEFSpeakerClient,
-        snapshot: SpeakerSnapshot
-    ) async {
-        guard snapshot.status == .powerOn,
-              snapshot.source.usesPlaybackStateForVolumeRouting else {
-            clearPlayerState()
-            return
-        }
-
-        let generation = connectionGeneration
-        let playerState = try? await speaker.getPlayerState()
-        guard !Task.isCancelled, appIsActive, connectionGeneration == generation,
-              self.speaker === speaker, speakerStatus == .powerOn,
-              source == snapshot.source else { return }
-
-        if let playerState {
-            applyPlayerState(playerState)
-        } else {
-            clearPlayerState()
-        }
-    }
-
-    private func applyPlayerState(_ playerState: PlayerState) {
+    func applyPlayerState(_ playerState: PlayerState) {
         let info = NowPlayingInfo(
             title: normalizedMetadata(playerState.nowPlaying.title),
             artist: normalizedMetadata(playerState.nowPlaying.artist),
@@ -697,12 +471,12 @@ final class RemoteStore: ObservableObject {
         updateIfChanged(\.nowPlaying, info.hasInfo ? info : nil)
     }
 
-    private func clearPlayerState() {
+    func clearPlayerState() {
         updateIfChanged(\.isPlaying, false)
         updateIfChanged(\.nowPlaying, nil)
     }
 
-    private func updateIfChanged<Value: Equatable>(
+    func updateIfChanged<Value: Equatable>(
         _ keyPath: ReferenceWritableKeyPath<RemoteStore, Value>, _ value: Value
     ) {
         if self[keyPath: keyPath] != value {
@@ -725,13 +499,14 @@ final class RemoteStore: ObservableObject {
 
     func handleLocalNetworkPermissionDenied() {
         localNetworkPermissionDenied = true
+        diagnosticHistory.record(.localNetworkPermission)
         lastError = "Local Network access is off. Allow Ampestra in Settings, then try again."
         if speaker == nil {
             connectionState = .failed(message: "Local Network access is off")
         }
     }
 
-    private func updateHardwareButtonCapture() {
+    func updateHardwareButtonCapture() {
         guard !isDemoMode else {
             hardwareButtons.stop()
             return
@@ -744,7 +519,7 @@ final class RemoteStore: ObservableObject {
         }
     }
 
-    private func showNotice(_ message: String) {
+    func showNotice(_ message: String) {
         noticeTask?.cancel()
         notice = message
         noticeTask = Task { @MainActor [weak self] in
@@ -754,7 +529,8 @@ final class RemoteStore: ObservableObject {
         }
     }
 
-    private func message(for error: Error) -> String {
+    func message(for error: Error) -> String {
+        diagnosticHistory.record(.classify(error))
         if let urlError = error as? URLError {
             switch urlError.code {
             case .notConnectedToInternet, .networkConnectionLost:

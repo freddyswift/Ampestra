@@ -12,6 +12,7 @@ final class VolumeCommandCoordinator {
         volume: Int,
         speaker: KEFSpeakerClient,
         timing: SpeakerTimingPolicy,
+        normalizeBeforeSending: @escaping @MainActor (Int) -> Int = { $0 },
         didSendLatest: @escaping @MainActor (KEFSpeakerClient) async -> Void,
         didFailLatest: @escaping @MainActor (Error, KEFSpeakerClient) async -> Void
     ) {
@@ -48,7 +49,7 @@ final class VolumeCommandCoordinator {
                         continue
                     }
 
-                    try await speaker.setVolume(requestedVolume)
+                    try await speaker.setVolume(normalizeBeforeSending(requestedVolume))
                     guard !Task.isCancelled, generation == taskGeneration else { return }
 
                     if pendingVolume != nil {

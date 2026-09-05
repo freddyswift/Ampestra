@@ -26,6 +26,7 @@ struct ConnectionView: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 18) {
                         ConnectionIntroCard()
+                        SavedSpeakersCard(store: store, discoveredSpeakers: discovery.speakers)
 
                         if store.localNetworkPermissionDenied {
                             permissionCard
@@ -59,6 +60,9 @@ struct ConnectionView: View {
         .interactiveDismissDisabled(!store.hasConfiguredSpeaker)
         .onAppear(perform: startDiscoveryIfNeeded)
         .onChange(of: store.connectionState, connectionStateChanged)
+        .onChange(of: store.currentSpeakerID) { _, _ in
+            if store.connectionState == .connected { dismiss() }
+        }
         .onDisappear(perform: store.stopDiscovery)
     }
 

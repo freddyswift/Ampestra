@@ -38,6 +38,7 @@ jobs:
           xcodebuild -project Ampestra.xcodeproj -scheme "Ampestra iOS"
           -destination 'platform=iOS Simulator,name=iPad mini (A17 Pro),OS=27.0'
           -only-testing:AmpestraMobileIntentTests/AppIntentMetadataTests/testRemoteControlsRemainReachableInLandscapeWithLargeTextAndError
+          -only-testing:AmpestraMobileIntentTests/ImprovementScreensTests
           test CODE_SIGNING_ALLOWED=NO
       - name: Check generated project is current
         run: git diff --exit-code -- Ampestra.xcodeproj

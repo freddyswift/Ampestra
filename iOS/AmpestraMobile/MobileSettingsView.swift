@@ -22,6 +22,17 @@ struct MobileSettingsView: View {
         NavigationStack {
             Form {
                 speakerSection
+                if let speakerID = store.currentSpeakerID {
+                    Section("Speaker volume") {
+                        NavigationLink {
+                            MobileVolumeSettingsView(speakerID: speakerID, records: store.speakerRecords) { preset in
+                                store.setVolume(preset.volume)
+                            }
+                        } label: {
+                            Label("Volume limit & presets", systemImage: "slider.horizontal.3")
+                        }
+                    }
+                }
                 physicalButtonsSection
                 if store.hasConfiguredSpeaker {
                     siriSection
@@ -126,6 +137,12 @@ struct MobileSettingsView: View {
                 .foregroundStyle(networkStatusColor)
             }
 
+            NavigationLink {
+                MobileDiagnosticsView(report: MobileDiagnosticsReport.make(store: store))
+            } label: {
+                Label("Diagnostics", systemImage: "doc.text.magnifyingglass")
+            }
+
             Button(action: openAppSettings) {
                 actionLabel("App permissions", systemImage: "arrow.up.forward.app")
             }
@@ -138,7 +155,7 @@ struct MobileSettingsView: View {
     private var siriSection: some View {
         Section {
             NavigationLink {
-                SiriShortcutsHelpView(defaultSpeakerName: store.speakerName)
+                SiriShortcutsHelpView(defaultSpeakerName: store.defaultSpeakerName)
             } label: {
                 Label("How to use Siri", systemImage: "waveform.badge.mic")
             }
@@ -148,7 +165,7 @@ struct MobileSettingsView: View {
         } header: {
             Text("Siri & Shortcuts")
         } footer: {
-            Text("Uses \(store.speakerName) by default and runs on your local network.")
+            Text("Uses \(store.defaultSpeakerName) by default and runs on your local network.")
         }
     }
 

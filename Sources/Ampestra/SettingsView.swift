@@ -73,6 +73,8 @@ struct SettingsView: View {
                 KeyboardVolumeStatusView()
             }
 
+            SpeakerVolumeSettingsSection()
+
             Section("Software Update") {
                 AppUpdateSettingsSection()
             }

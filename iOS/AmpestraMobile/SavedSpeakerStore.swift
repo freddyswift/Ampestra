@@ -20,6 +20,7 @@ struct SavedSpeaker: Codable, Equatable, Identifiable, Sendable {
     var lastAudibleVolume: Int?
     var requiresReconfirmation: Bool? = nil
     var widgetReading: WidgetSpeakerReading? = nil
+    var volumePreferences: SpeakerVolumePreferences? = nil
 
     var connectionHosts: [String] {
         // Historical DHCP addresses are not proof of speaker identity.
@@ -227,6 +228,31 @@ final class SpeakerRecordStore: @unchecked Sendable {
                 }
             }
         }
+    }
+
+    @discardableResult
+    func setDefaultSpeaker(id: String) -> Bool {
+        let changed = lock.withLock {
+            guard loadRecordsLocked().contains(where: { $0.id == id }) else { return false }
+            defaults.set(id, forKey: SpeakerPreferenceKeys.defaultSpeakerID)
+            return true
+        }
+        if changed { WidgetCenter.shared.reloadTimelines(ofKind: AmpestraWidgetConstants.controlsKind) }
+        return changed
+    }
+
+    func volumePreferences(for id: String) -> SpeakerVolumePreferences {
+        speaker(id: id)?.volumePreferences ?? SpeakerVolumePreferences()
+    }
+
+    func updateVolumePreferences(_ preferences: SpeakerVolumePreferences, for id: String) {
+        lock.withLock {
+            var records = loadRecordsLocked()
+            guard let index = records.firstIndex(where: { $0.id == id }) else { return }
+            records[index].volumePreferences = preferences
+            persistLocked(records)
+        }
+        WidgetCenter.shared.reloadTimelines(ofKind: AmpestraWidgetConstants.controlsKind)
     }
 
     func preferredVolumeStep() -> Int {

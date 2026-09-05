@@ -202,7 +202,7 @@ actor SpeakerCommandService {
 
         let current = VolumePolicy.clampedVolume(connection.snapshot.volume)
         let boundedAmount = min(100, max(-100, amount))
-        let target = VolumePolicy.clampedVolume(current + boundedAmount)
+        let target = speakerRecords.volumePreferences(for: connection.record.id).clampedVolume(current + boundedAmount)
         let changed = target != connection.snapshot.volume
         if changed {
             try await performWrite(command: "adjust-volume", connection: connection) {
@@ -232,6 +232,7 @@ actor SpeakerCommandService {
         let connection = try await connection(for: speakerID)
         try requirePoweredOn(connection.snapshot)
 
+        let volume = speakerRecords.volumePreferences(for: connection.record.id).clampedVolume(volume)
         let changed = connection.snapshot.volume != volume
         if changed {
             try await performWrite(command: "set-volume", connection: connection) {
@@ -266,8 +267,9 @@ actor SpeakerCommandService {
         if shouldMute, connection.snapshot.volume > 0 {
             speakerRecords.rememberAudibleVolume(connection.snapshot.volume, for: connection.record.id)
         }
-        let target = shouldMute ? 0 : (connection.snapshot.volume > 0
+        let requestedTarget = shouldMute ? 0 : (connection.snapshot.volume > 0
             ? connection.snapshot.volume : (connection.record.lastAudibleVolume ?? 20))
+        let target = speakerRecords.volumePreferences(for: connection.record.id).clampedVolume(requestedTarget)
         let changed = connection.snapshot.volume != target
         if changed {
             try await performWrite(command: shouldMute ? "mute" : "unmute", connection: connection) {

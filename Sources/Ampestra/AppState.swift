@@ -22,9 +22,9 @@ final class AppState: ObservableObject {
     @Published var isConnected = false
     @Published var connectionError: String?
     @Published var currentHost: String?
-    @Published private(set) var isReconnecting = false
-    @Published private(set) var needsLocalNetworkAccess = false
-    @Published private(set) var hasStartedConnection = false
+    @Published var isReconnecting = false
+    @Published var needsLocalNetworkAccess = false
+    @Published var hasStartedConnection = false
 
     // Speaker state
     @Published var speakerName: String = ""
@@ -56,30 +56,26 @@ final class AppState: ObservableObject {
     @AppStorage("useFixedVolumeSteps") private var storedUseFixedVolumeSteps: Bool = true
     @AppStorage("volumeStepSize") private var storedVolumeStepSize: Int = 5
     @AppStorage("hasCompletedOnboarding") var hasCompletedOnboarding: Bool = false
-    @AppStorage("lastConnectedHost") private var lastConnectedHost: String = ""
-    @AppStorage("trustedSpeakerHosts") private var trustedSpeakerHostsStorage: String = ""
+    @AppStorage("lastConnectedHost") var lastConnectedHost: String = ""
+    @AppStorage("trustedSpeakerHosts") var trustedSpeakerHostsStorage: String = ""
 
     // Discovery
     let discovery = KEFDiscovery()
 
     // Internal controllers and task state. `AppState` remains the app-facing
     // coordinator, but long-lived loops and pure policies live in smaller types.
-    private var speaker: KEFSpeakerClient?
-    private var connectionTask: Task<Void, Never>?
+    var speaker: KEFSpeakerClient?
+    let connectionSession = SpeakerConnectionSession()
     private var busyActionTask: Task<Void, Never>?
     private var busyActionGeneration = 0
-    private let pollingController = SpeakerPollingController()
-    private var isRefreshInProgress = false
-    private var needsTrailingRefresh = false
-    private var lastPlaybackStateRefresh: ContinuousClock.Instant?
-    private var consecutiveRefreshFailures = 0
     private var pendingCommittedVolume: Int?
     private var pendingVolumeResetTask: Task<Void, Never>?
     private var volumeBeforeMediaKeyMute: Int?
     private var clearsActionErrorAfterHealthyRefresh = false
-    private let speakerClientFactory: any KEFSpeakerClientFactory
-    private let timing: SpeakerTimingPolicy
+    let speakerClientFactory: any KEFSpeakerClientFactory
+    let timing: SpeakerTimingPolicy
     private let volumeCommandCoordinator = VolumeCommandCoordinator()
+    private let volumePreferenceStore: SpeakerVolumePreferenceStore
     private var discoveryObservation: AnyCancellable?
     private var hasRequestedMediaKeyAccess = false
     private var hasRequestedAccessibilityAccess = false
@@ -107,10 +103,12 @@ final class AppState: ObservableObject {
     init(
         speakerClientFactory: any KEFSpeakerClientFactory = LiveKEFSpeakerClientFactory(),
         timing: SpeakerTimingPolicy = .live,
+        volumePreferenceStore: SpeakerVolumePreferenceStore? = nil,
         startImmediately: Bool = true
     ) {
         self.speakerClientFactory = speakerClientFactory
         self.timing = timing
+        self.volumePreferenceStore = volumePreferenceStore ?? SpeakerVolumePreferenceStore()
 
         migrateLegacyVolumeKeyPreference()
         discovery.localNetworkAccessDeniedHandler = { [weak self] in
@@ -127,6 +125,29 @@ final class AppState: ObservableObject {
 
     var allowedVolumeStepRange: ClosedRange<Int> {
         VolumePolicy.allowedStepRange
+    }
+
+    var speakerVolumePreferences: SpeakerVolumePreferences {
+        volumePreferenceStore.preferences(host: currentHost, macAddress: speakerMAC)
+    }
+
+    var maximumSpeakerVolume: Int {
+        speakerVolumePreferences.effectiveMaximumVolume
+    }
+
+    func setSpeakerVolumePreferences(_ preferences: SpeakerVolumePreferences) {
+        guard currentHost != nil else { return }
+        objectWillChange.send()
+        volumePreferenceStore.save(preferences, host: currentHost, macAddress: speakerMAC)
+        // Replace queued writes that would exceed a newly lowered ceiling.
+        if let pendingCommittedVolume, pendingCommittedVolume > maximumSpeakerVolume {
+            commitVolume(maximumSpeakerVolume, applyingStepPolicy: false)
+        }
+    }
+
+    func applyVolumePreset(_ preset: VolumePreset) {
+        guard isConnected, status == .powerOn, !isBusy else { return }
+        commitVolume(preset.volume, applyingStepPolicy: false)
     }
 
     var useFixedVolumeSteps: Bool {
@@ -401,434 +422,7 @@ final class AppState: ObservableObject {
         "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 
-    // MARK: - Connection
-
-    func startConnectionIfNeeded() {
-        guard !hasStartedConnection, !isConnected, !isReconnecting else { return }
-        startConnection()
-    }
-
-    func startConnectionForReturningUserIfNeeded() {
-        guard hasCompletedOnboarding else { return }
-        startConnectionIfNeeded()
-    }
-
-    func scanForSpeakers() {
-        updateIfChanged(\.hasStartedConnection, true)
-        updateIfChanged(\.needsLocalNetworkAccess, false)
-        if !isConnected {
-            updateIfChanged(\.connectionError, nil)
-        }
-        discovery.startDiscovery()
-    }
-
-    func startConnection() {
-        updateIfChanged(\.hasStartedConnection, true)
-        updateIfChanged(\.needsLocalNetworkAccess, false)
-        disconnect()
-
-        let manualHost = manualIP.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !manualHost.isEmpty {
-            connect(to: manualHost)
-            return
-        }
-
-        guard useAutoDiscovery else { return }
-
-        discovery.startDiscovery()
-        connectionTask = Task { @MainActor in
-            var attemptedHosts = Set<String>()
-            let trustedLastConnectedHost = trustedHostForAutoConnection(lastConnectedHost)
-            var nextTrustedHostAttempt: ContinuousClock.Instant?
-
-            if let trustedLastConnectedHost {
-                attemptedHosts.insert(trustedLastConnectedHost)
-                if await establishConnection(to: trustedLastConnectedHost, retryCount: 2, trustOnSuccess: true) {
-                    return
-                }
-                nextTrustedHostAttempt = ContinuousClock.now + timing.reconnectRetryDelay
-            }
-
-            let deadline = ContinuousClock.now + timing.autoDiscoveryTimeout
-            while ContinuousClock.now < deadline {
-                guard !Task.isCancelled else { return }
-
-                if let trustedLastConnectedHost,
-                   let scheduledAttempt = nextTrustedHostAttempt,
-                   ContinuousClock.now >= scheduledAttempt {
-                    if await establishConnection(
-                        to: trustedLastConnectedHost,
-                        retryCount: 1,
-                        trustOnSuccess: true
-                    ) {
-                        return
-                    }
-                    nextTrustedHostAttempt = ContinuousClock.now + timing.reconnectRetryDelay
-                }
-
-                let candidates = trustedAutoConnectionCandidates(from: discovery.speakers)
-                    .filter { !attemptedHosts.contains($0) }
-
-                for host in candidates {
-                    attemptedHosts.insert(host)
-                    if await establishConnection(to: host, retryCount: 2, trustOnSuccess: true) {
-                        return
-                    }
-                }
-
-                try? await timing.sleep(timing.autoDiscoveryPollInterval)
-            }
-
-            guard !Task.isCancelled else { return }
-            discovery.stopDiscovery()
-            if speaker == nil {
-                updateIfChanged(\.isConnected, false)
-                updateIfChanged(\.isReconnecting, false)
-                if !needsLocalNetworkAccess {
-                    updateIfChanged(\.connectionError, discovery.speakers.isEmpty
-                        ? "No KEF speaker found"
-                        : "Choose a discovered speaker to connect")
-                }
-            }
-        }
-    }
-
-    func connect(to host: String) {
-        updateIfChanged(\.hasStartedConnection, true)
-        updateIfChanged(\.needsLocalNetworkAccess, false)
-        disconnect()
-
-        guard let normalizedHost = ManualHostValidator.normalizedHost(host) else {
-            connectionError = "Enter a private local IP address or .local host."
-            return
-        }
-
-        connectionTask = Task { @MainActor in
-            let connected = await establishConnection(to: normalizedHost, retryCount: 3, trustOnSuccess: true)
-            guard !Task.isCancelled else { return }
-
-            if !connected {
-                updateIfChanged(\.isConnected, false)
-                updateIfChanged(\.isReconnecting, false)
-                if connectionError == nil {
-                    connectionError = "Cannot reach speaker at \(normalizedHost)"
-                }
-                speaker = nil
-                currentHost = nil
-            }
-        }
-    }
-
-    func disconnect() {
-        connectionTask?.cancel()
-        connectionTask = nil
-        busyActionGeneration += 1
-        busyActionTask?.cancel()
-        busyActionTask = nil
-        discovery.stopDiscovery()
-        pollingController.stop()
-        volumeCommandCoordinator.cancel()
-        needsTrailingRefresh = false
-        lastPlaybackStateRefresh = nil
-        speaker = nil
-        updateIfChanged(\.isConnected, false)
-        updateIfChanged(\.isReconnecting, false)
-        updateIfChanged(\.needsLocalNetworkAccess, false)
-        updateIfChanged(\.currentHost, nil)
-        updateIfChanged(\.connectionError, nil)
-        consecutiveRefreshFailures = 0
-        updateIfChanged(\.speakerName, "")
-        updateIfChanged(\.speakerModel, "")
-        updateIfChanged(\.status, .standby)
-        updateIfChanged(\.source, .wifi)
-        updateIfChanged(\.volume, 0)
-        updateIfChanged(\.displayedVolume, 0)
-        volumeBeforeMediaKeyMute = nil
-        updateIfChanged(\.isPlaying, false)
-        updateIfChanged(\.nowPlaying, nil)
-        clearActionError()
-        updateIfChanged(\.isBusy, false)
-        clearPendingVolume(keepDisplayedVolume: false)
-        volumeHUD.hide()
-    }
-
-    func forgetSpeaker(host: String) {
-        guard let forgottenHost = ManualHostValidator.normalizedHost(host) else { return }
-        let isForgettingCurrentSpeaker = ManualHostValidator.normalizedHost(currentHost ?? "") == forgottenHost
-
-        objectWillChange.send()
-        if ManualHostValidator.normalizedHost(manualIP) == forgottenHost {
-            manualIP = ""
-        }
-        removeTrustedHost(forgottenHost)
-        if ManualHostValidator.normalizedHost(lastConnectedHost) == forgottenHost {
-            lastConnectedHost = ""
-        }
-
-        if isForgettingCurrentSpeaker {
-            hasCompletedOnboarding = false
-            disconnect()
-        }
-    }
-
-    private var trustedSpeakerHosts: Set<String> {
-        get {
-            Set(
-                trustedSpeakerHostsStorage
-                    .split(separator: "\n")
-                    .map(String.init)
-            )
-        }
-        set {
-            trustedSpeakerHostsStorage = newValue.sorted().joined(separator: "\n")
-        }
-    }
-
-    private func trustedHostForAutoConnection(_ host: String) -> String? {
-        guard let normalizedHost = ManualHostValidator.normalizedHost(host),
-              trustedSpeakerHosts.contains(normalizedHost) else {
-            return nil
-        }
-
-        return normalizedHost
-    }
-
-    func trustedAutoConnectionCandidates(from speakers: [DiscoveredSpeaker]) -> [String] {
-        speakers.compactMap { trustedHostForAutoConnection($0.host) }
-    }
-
-    private func trustSpeakerHost(_ host: String) {
-        guard let normalizedHost = ManualHostValidator.normalizedHost(host) else { return }
-        var hosts = trustedSpeakerHosts
-        guard hosts.insert(normalizedHost).inserted else { return }
-        trustedSpeakerHosts = hosts
-    }
-
-    private func removeTrustedHost(_ host: String) {
-        guard let normalizedHost = ManualHostValidator.normalizedHost(host) else { return }
-        var hosts = trustedSpeakerHosts
-        hosts.remove(normalizedHost)
-        trustedSpeakerHosts = hosts
-    }
-
-    @discardableResult
-    private func establishConnection(to host: String, retryCount: Int, trustOnSuccess: Bool) async -> Bool {
-        let api = speakerClientFactory.makeClient(host: host)
-        speaker = api
-        updateIfChanged(\.currentHost, host)
-        updateIfChanged(\.isReconnecting, true)
-        updateIfChanged(\.needsLocalNetworkAccess, false)
-        updateIfChanged(\.connectionError, nil)
-        var lastConnectionError: Error?
-
-        for attempt in 0..<retryCount {
-            guard !Task.isCancelled, self.speaker === api else { return false }
-
-            do {
-                try await api.validateConnection()
-                guard !Task.isCancelled, self.speaker === api else { return false }
-                markConnectionHealthy(for: api, stopDiscovery: true, trustHost: trustOnSuccess)
-                await refresh()
-                guard !Task.isCancelled, self.speaker === api else { return false }
-                startPolling()
-                return true
-            } catch {
-                lastConnectionError = error
-            }
-
-            if attempt < retryCount - 1 {
-                try? await timing.sleep(timing.connectionRetryDelay(afterAttempt: attempt))
-            }
-        }
-
-        guard self.speaker === api else { return false }
-        speaker = nil
-        updateIfChanged(\.currentHost, nil)
-        updateIfChanged(\.isConnected, false)
-        updateIfChanged(\.isReconnecting, false)
-        if let lastConnectionError {
-            applyConnectionFailure(lastConnectionError, host: host)
-        }
-        return false
-    }
-
-    private func applyConnectionFailure(_ error: Error, host: String) {
-        if let urlError = error as? URLError, urlError.code == .notConnectedToInternet {
-            updateIfChanged(\.needsLocalNetworkAccess, true)
-            updateIfChanged(
-                \.connectionError,
-                "macOS reports that Local Network access is blocked, even though System Settings may show it as enabled."
-            )
-            return
-        }
-
-        updateIfChanged(\.needsLocalNetworkAccess, false)
-        updateIfChanged(\.connectionError, "Cannot reach speaker at \(host)")
-    }
-
-    private func handleLocalNetworkAccessDenied() {
-        updateIfChanged(\.needsLocalNetworkAccess, true)
-        updateIfChanged(
-            \.connectionError,
-            "macOS reports that Local Network access is blocked, even though System Settings may show it as enabled."
-        )
-    }
-
-    // MARK: - Polling
-
-    private func startPolling() {
-        pollingController.start(
-            refresh: { [weak self] in
-                await self?.refresh()
-            },
-            isPlaybackStatePollingNeeded: { [weak self] in
-                self?.isPlaybackStatePollingNeeded == true
-            },
-            refreshPlaybackStateForVolumeRouting: { [weak self] in
-                await self?.refreshPlaybackStateForVolumeRouting()
-            }
-        )
-    }
-
-    private var isPlaybackStatePollingNeeded: Bool {
-        volumeKeyRoutingMode == .auto
-            && mediaKeyAccessState == .working
-            && volumeKeyRoutingSources.contains(source)
-            && source.usesPlaybackStateForVolumeRouting
-            && status == .powerOn
-    }
-
-    /// Auto routing needs fresher playback state than the full 3-second refresh.
-    /// This lightweight poll only runs when the current source uses playback
-    /// state to decide whether volume keys should control the speaker or macOS.
-    private func refreshPlaybackStateForVolumeRouting() async {
-        guard isPlaybackStatePollingNeeded, let speaker else {
-            return
-        }
-
-        do {
-            let playerState = try await speaker.getPlayerState()
-            guard self.speaker === speaker else { return }
-            applyPlayerState(playerState)
-            lastPlaybackStateRefresh = ContinuousClock.now
-        } catch {
-            guard self.speaker === speaker else { return }
-        }
-    }
-
-    func refresh() async {
-        if isRefreshInProgress {
-            needsTrailingRefresh = true
-            return
-        }
-
-        isRefreshInProgress = true
-        defer { isRefreshInProgress = false }
-
-        repeat {
-            needsTrailingRefresh = false
-            await performRefresh()
-        } while needsTrailingRefresh
-    }
-
-    private func performRefresh() async {
-        guard let speaker else { return }
-
-        do {
-            let snapshot = try await speaker.getSnapshot()
-
-            guard self.speaker === speaker else { return }
-
-            updateIfChanged(\.status, snapshot.status)
-            updateIfChanged(\.source, snapshot.source)
-            updateIfChanged(\.volume, snapshot.volume)
-            syncDisplayedVolume(with: snapshot.volume)
-            updateIfChanged(\.speakerName, snapshot.name)
-            updateIfChanged(\.speakerModel, snapshot.model)
-
-            if snapshot.status == .powerOn,
-               snapshot.source.usesPlaybackStateForVolumeRouting,
-               !hasFreshPlaybackStateFromRoutingPoll {
-                let playerData = try? await speaker.getPlayerState()
-                guard self.speaker === speaker else { return }
-                if let playerData {
-                    applyPlayerState(playerData)
-                    lastPlaybackStateRefresh = ContinuousClock.now
-                } else {
-                    clearPlayerState()
-                }
-            } else if snapshot.status != .powerOn || !snapshot.source.usesPlaybackStateForVolumeRouting {
-                clearPlayerState()
-                lastPlaybackStateRefresh = nil
-            }
-
-            markConnectionHealthy(for: speaker)
-            clearRecoveredNetworkActionError()
-        } catch {
-            guard self.speaker === speaker else { return }
-            if await speaker.testConnection() {
-                markConnectionHealthy(for: speaker)
-            } else {
-                recordConnectionFailure(for: speaker)
-            }
-        }
-    }
-
-    private var hasFreshPlaybackStateFromRoutingPoll: Bool {
-        guard isPlaybackStatePollingNeeded, let lastPlaybackStateRefresh else {
-            return false
-        }
-
-        return lastPlaybackStateRefresh.duration(to: ContinuousClock.now) < .seconds(2)
-    }
-
-    private func applyPlayerState(_ playerState: PlayerState) {
-        updateIfChanged(\.isPlaying, playerState.isPlaying)
-        updateIfChanged(\.nowPlaying, playerState.nowPlaying.hasInfo ? playerState.nowPlaying : nil)
-    }
-
-    private func clearPlayerState() {
-        updateIfChanged(\.isPlaying, false)
-        updateIfChanged(\.nowPlaying, nil)
-    }
-
-    private func markConnectionHealthy(
-        for speaker: KEFSpeakerClient,
-        stopDiscovery: Bool = false,
-        trustHost: Bool = false
-    ) {
-        guard self.speaker === speaker else { return }
-
-        consecutiveRefreshFailures = 0
-        updateIfChanged(\.isConnected, true)
-        updateIfChanged(\.isReconnecting, false)
-        updateIfChanged(\.currentHost, speaker.host)
-        if trustHost {
-            trustSpeakerHost(speaker.host)
-            if lastConnectedHost != speaker.host {
-                lastConnectedHost = speaker.host
-            }
-        }
-        updateIfChanged(\.connectionError, nil)
-        updateIfChanged(\.needsLocalNetworkAccess, false)
-        if stopDiscovery {
-            discovery.stopDiscovery()
-        }
-    }
-
-    private func recordConnectionFailure(for speaker: KEFSpeakerClient) {
-        guard self.speaker === speaker else { return }
-
-        consecutiveRefreshFailures += 1
-
-        if consecutiveRefreshFailures >= 3 || !isConnected {
-            updateIfChanged(\.isConnected, false)
-            updateIfChanged(\.isReconnecting, true)
-            updateIfChanged(\.connectionError, "Reconnecting to speaker...")
-        }
-    }
-
-    private func updateIfChanged<Value: Equatable>(_ keyPath: ReferenceWritableKeyPath<AppState, Value>, _ newValue: Value) {
+    func updateIfChanged<Value: Equatable>(_ keyPath: ReferenceWritableKeyPath<AppState, Value>, _ newValue: Value) {
         if self[keyPath: keyPath] != newValue {
             self[keyPath: keyPath] = newValue
         }
@@ -903,9 +497,10 @@ final class AppState: ObservableObject {
     }
 
     private func commitVolume(_ newVolume: Int, applyingStepPolicy: Bool) {
-        let clampedVolume = applyingStepPolicy
+        let normalizedVolume = applyingStepPolicy
             ? volumePolicy.normalizedVolume(newVolume)
             : VolumePolicy.clampedVolume(newVolume)
+        let clampedVolume = speakerVolumePreferences.clampedVolume(normalizedVolume)
         clearActionError()
         if clampedVolume > 0 {
             volumeBeforeMediaKeyMute = nil
@@ -937,6 +532,9 @@ final class AppState: ObservableObject {
             volume: clampedVolume,
             speaker: speaker,
             timing: timing,
+            normalizeBeforeSending: { [volumePreferenceStore, host = currentHost, mac = speakerMAC] value in
+                volumePreferenceStore.preferences(host: host, macAddress: mac).clampedVolume(value)
+            },
             didSendLatest: { [weak self] speaker in
                 guard let self, self.speaker === speaker else { return }
                 self.clearActionError()
@@ -950,7 +548,7 @@ final class AppState: ObservableObject {
         )
     }
 
-    private func clearRecoveredNetworkActionError() {
+    func clearRecoveredNetworkActionError() {
         guard clearsActionErrorAfterHealthyRefresh else { return }
         clearActionError()
     }
@@ -1068,7 +666,7 @@ final class AppState: ObservableObject {
     /// Keep the UI optimistic after a local volume change. Speakers can report
     /// their old volume for a short period after `setVolume`; this prevents the
     /// slider and HUD from bouncing backward while the command is settling.
-    private func syncDisplayedVolume(with remoteVolume: Int) {
+    func syncDisplayedVolume(with remoteVolume: Int) {
         if let pendingCommittedVolume {
             if remoteVolume == pendingCommittedVolume {
                 clearPendingVolume()
@@ -1125,12 +723,8 @@ final class AppState: ObservableObject {
         volumeKeyRoutingMode = legacyValue ? .auto : .mac
     }
 
-    // MARK: - Wake-on-LAN
 
-    var speakerMAC: String? {
-        guard let host = currentHost ?? preferredWakeHost else { return nil }
-        return discovery.speakers.first(where: { $0.host == host })?.macAddress
-    }
+    // MARK: - Wake action
 
     func wakeSpeaker() {
         guard !isBusy, let mac = speakerMAC,
@@ -1165,13 +759,26 @@ final class AppState: ObservableObject {
         }
     }
 
-    private var preferredWakeHost: String? {
-        if let trustedLastConnectedHost = trustedHostForAutoConnection(lastConnectedHost) {
-            return trustedLastConnectedHost
-        }
 
-        return discovery.speakers
-            .compactMap { trustedHostForAutoConnection($0.host) }
-            .first
+    /// Connection teardown invalidates every action before a new speaker can run.
+    func resetSpeakerActionState() {
+        busyActionGeneration += 1
+        busyActionTask?.cancel()
+        busyActionTask = nil
+        volumeCommandCoordinator.cancel()
+        updateIfChanged(\.speakerName, "")
+        updateIfChanged(\.speakerModel, "")
+        updateIfChanged(\.status, .standby)
+        updateIfChanged(\.source, .wifi)
+        updateIfChanged(\.volume, 0)
+        updateIfChanged(\.displayedVolume, 0)
+        volumeBeforeMediaKeyMute = nil
+        updateIfChanged(\.isPlaying, false)
+        updateIfChanged(\.nowPlaying, nil)
+        clearActionError()
+        updateIfChanged(\.isBusy, false)
+        clearPendingVolume(keepDisplayedVolume: false)
+        volumeHUD.hide()
     }
+
 }
