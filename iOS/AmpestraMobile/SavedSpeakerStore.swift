@@ -255,6 +255,10 @@ final class SpeakerRecordStore: @unchecked Sendable {
         WidgetCenter.shared.reloadTimelines(ofKind: AmpestraWidgetConstants.controlsKind)
     }
 
+    func prefersSnappedVolumeSteps() -> Bool {
+        lock.withLock { defaults.bool(forKey: SpeakerPreferenceKeys.snapVolumeSteps) }
+    }
+
     func preferredVolumeStep() -> Int {
         lock.withLock {
             defaults.object(forKey: SpeakerPreferenceKeys.volumeStep) == nil

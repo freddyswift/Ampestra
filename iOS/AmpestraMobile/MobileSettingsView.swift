@@ -114,6 +114,10 @@ struct MobileSettingsView: View {
                 LabeledContent("Step", value: "\(store.volumeStep)%")
             }
 
+            Toggle("Snap to step multiples", isOn: $store.snapVolumeSteps)
+                .disabled(!MobileVolumeStepPolicy.supportsSnapping(step: store.volumeStep))
+                .accessibilityIdentifier("snap-volume-steps")
+
             if let error = hardwareButtons.lastError {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
@@ -121,6 +125,8 @@ struct MobileSettingsView: View {
             }
         } header: {
             Text("Volume buttons")
+        } footer: {
+            Text("Snapping moves volume to the next or previous step multiple. Available for steps 1, 2, 4, 5, 10, 20, and 25; other steps add or subtract the selected amount.")
         }
     }
 

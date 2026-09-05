@@ -68,8 +68,8 @@ actor SpeakerCommandService {
         try await execute(.source(source), speakerID: speakerID)
     }
 
-    func adjustVolume(by amount: Int, speakerID: String? = nil) async throws -> SpeakerCommandConfirmation {
-        try await execute(.adjust(amount), speakerID: speakerID)
+    func adjustVolume(by amount: Int, speakerID: String? = nil, snap: Bool = false) async throws -> SpeakerCommandConfirmation {
+        try await execute(.adjust(amount, snap: snap), speakerID: speakerID)
     }
 
     func setVolume(_ volume: Int, speakerID: String? = nil) async throws -> SpeakerCommandConfirmation {
@@ -112,7 +112,7 @@ actor SpeakerCommandService {
     }
 
     private enum Command: Sendable {
-        case status, source(SpeakerSource), adjust(Int), volume(Int), mute(Bool), toggleMute
+        case status, source(SpeakerSource), adjust(Int, snap: Bool), volume(Int), mute(Bool), toggleMute
         case power(Bool), playback(SpeakerPlaybackCommand)
     }
 
@@ -124,7 +124,8 @@ actor SpeakerCommandService {
         switch command {
         case .status: result = try await performStatus(speakerID: speakerID)
         case .source(let source): result = try await performSetSource(source, speakerID: speakerID)
-        case .adjust(let amount): result = try await performAdjustVolume(by: amount, speakerID: speakerID)
+        case .adjust(let amount, let snap):
+            result = try await performAdjustVolume(by: amount, speakerID: speakerID, snap: snap)
         case .volume(let volume): result = try await performSetVolume(volume, speakerID: speakerID)
         case .mute(let muted): result = try await performSetMuted(muted, speakerID: speakerID)
         case .toggleMute:
@@ -189,20 +190,22 @@ actor SpeakerCommandService {
         let amount = direction > 0
             ? speakerRecords.preferredVolumeStep()
             : -speakerRecords.preferredVolumeStep()
-        return try await adjustVolume(by: amount, speakerID: speakerID)
+        return try await adjustVolume(by: amount, speakerID: speakerID, snap: speakerRecords.prefersSnappedVolumeSteps())
     }
 
     private func performAdjustVolume(
         by amount: Int,
-        speakerID: String? = nil
+        speakerID: String? = nil,
+        snap: Bool
     ) async throws -> SpeakerCommandConfirmation {
         guard amount != 0 else { throw SpeakerCommandError.invalidAdjustment }
         let connection = try await connection(for: speakerID)
         try requirePoweredOn(connection.snapshot)
 
         let current = VolumePolicy.clampedVolume(connection.snapshot.volume)
-        let boundedAmount = min(100, max(-100, amount))
-        let target = speakerRecords.volumePreferences(for: connection.record.id).clampedVolume(current + boundedAmount)
+        let target = speakerRecords.volumePreferences(for: connection.record.id).clampedVolume(
+            MobileVolumeStepPolicy.target(from: current, amount: amount, snap: snap)
+        )
         let changed = target != connection.snapshot.volume
         if changed {
             try await performWrite(command: "adjust-volume", connection: connection) {

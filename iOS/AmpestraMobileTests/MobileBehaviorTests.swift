@@ -815,6 +815,64 @@ final class MobileBehaviorTests: XCTestCase {
         XCTAssertEqual(entity.model, "LSXII")
     }
 
+    func testVolumeStepSnappingArithmetic() {
+        for step in 1...25 {
+            let supported = [1, 2, 4, 5, 10, 20, 25].contains(step)
+            XCTAssertEqual(MobileVolumeStepPolicy.supportsSnapping(step: step), supported)
+            for volume in 0...100 {
+                for direction in [-1, 1] {
+                    let target = MobileVolumeStepPolicy.target(from: volume, amount: direction * step, snap: true)
+                    if supported {
+                        let multiples = stride(from: 0, through: 100, by: step)
+                        let expected = direction > 0
+                            ? (multiples.first { $0 > volume } ?? 100)
+                            : (multiples.filter { $0 < volume }.last ?? 0)
+                        XCTAssertEqual(target, expected)
+                    } else {
+                        XCTAssertEqual(target, max(0, min(100, volume + direction * step)))
+                    }
+                    XCTAssertEqual(
+                        MobileVolumeStepPolicy.target(from: volume, amount: direction * step, snap: false),
+                        max(0, min(100, volume + direction * step))
+                    )
+                }
+            }
+        }
+    }
+
+    func testSnapPreferencePersistsAcrossStores() {
+        let defaults = makeDefaults()
+        let store = RemoteStore(defaults: defaults)
+        XCTAssertFalse(store.snapVolumeSteps)
+        store.snapVolumeSteps = true
+        XCTAssertTrue(RemoteStore(defaults: defaults).snapVolumeSteps)
+        XCTAssertTrue(SpeakerRecordStore(defaults: defaults).prefersSnappedVolumeSteps())
+        store.volumeStep = 7
+        XCTAssertTrue(store.snapVolumeSteps)
+    }
+
+    func testSpeakerCommandServiceSnapsConfiguredStepsAndRespectsCeiling() async throws {
+        for (volume, direction, maximum, expected) in [
+            (34, 1, 100, 35), (34, -1, 100, 30),
+            (35, 1, 100, 40), (35, -1, 100, 30),
+            (34, 1, 34, 34), (0, -1, 100, 0), (100, 1, 100, 100),
+        ] {
+            let defaults = makeDefaults()
+            defaults.set(true, forKey: SpeakerPreferenceKeys.snapVolumeSteps)
+            defaults.set(5, forKey: SpeakerPreferenceKeys.volumeStep)
+            let records = SpeakerRecordStore(defaults: defaults)
+            let snapshot = speakerSnapshot(volume: volume)
+            let record = try XCTUnwrap(records.save(host: "192.168.1.60", macAddress: nil, snapshot: snapshot))
+            var preferences = records.volumePreferences(for: record.id)
+            preferences.maximumVolume = maximum
+            records.updateVolumePreferences(preferences, for: record.id)
+            let speaker = StubSpeaker(snapshots: [.success(snapshot)])
+            let service = SpeakerCommandService(speakerRecords: records) { _ in speaker }
+            let confirmation = try await service.adjustVolume(direction: direction)
+            XCTAssertEqual(confirmation.volume, expected)
+        }
+    }
+
     func testSpeakerCommandServiceUsesConfiguredVolumeStep() async throws {
         let defaults = makeDefaults()
         defaults.set(7, forKey: SpeakerPreferenceKeys.volumeStep)

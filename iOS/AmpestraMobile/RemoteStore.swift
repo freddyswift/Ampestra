@@ -36,6 +36,11 @@ final class RemoteStore: ObservableObject {
             defaults.set(mutePhoneOnExit, forKey: SpeakerPreferenceKeys.mutePhoneOnExit)
         }
     }
+    @Published var snapVolumeSteps: Bool {
+        didSet {
+            defaults.set(snapVolumeSteps, forKey: SpeakerPreferenceKeys.snapVolumeSteps)
+        }
+    }
     @Published var volumeStep: Int {
         didSet {
             let clamped = VolumePolicy.clampedStepSize(volumeStep)
@@ -105,6 +110,7 @@ final class RemoteStore: ObservableObject {
         self.sleep = sleep
         self.clientFactory = clientFactory
 
+        snapVolumeSteps = effectiveDefaults.bool(forKey: SpeakerPreferenceKeys.snapVolumeSteps)
         manualHost = effectiveDefaults.string(forKey: SpeakerPreferenceKeys.manualHost) ?? ""
         volumeStep = effectiveDefaults.object(forKey: SpeakerPreferenceKeys.volumeStep) == nil
             ? 5
@@ -286,12 +292,15 @@ final class RemoteStore: ObservableObject {
     func adjustVolume(direction: Int, originatedFromHardware: Bool = false) {
         guard direction != 0, canControlSpeaker || isDemoMode else { return }
         let amount = direction.signum() * volumeStep
-        let target = currentVolumePreferences.clampedVolume(volume + amount)
+        let snap = snapVolumeSteps
+        let target = currentVolumePreferences.clampedVolume(
+            MobileVolumeStepPolicy.target(from: volume, amount: amount, snap: snap)
+        )
         if isDemoMode { volume = target; return }
         guard let id = currentSpeakerID else { return }
         volume = target
         enqueueVolumeCommand { [commands] in
-            try await commands.adjustVolume(by: amount, speakerID: id)
+            try await commands.adjustVolume(by: amount, speakerID: id, snap: snap)
         }
     }
 
