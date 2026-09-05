@@ -47,7 +47,6 @@ public final class KEFSpeakerAPI: Sendable {
     public let host: String
     private let session: URLSession
     private let modelCache = LockedValue<String?>(nil)
-    private let setDataUsesPostCache = LockedValue<Bool?>(nil)
     private let supportsBatchedGetDataCache = LockedValue<Bool?>(nil)
 
     public convenience init(host: String) {
@@ -218,15 +217,10 @@ public final class KEFSpeakerAPI: Sendable {
     }
 
     private func usesPostForSetData() async throws -> Bool {
-        if let cached = setDataUsesPostCache.value {
-            return cached
-        }
-
         let model = try await getModel()
-        let normalizedModel = Self.modelAliases[model] ?? model
-        let usesPost = Self.postSetDataModels.contains(normalizedModel)
-        setDataUsesPostCache.value = usesPost
-        return usesPost
+        let modelKey = model.uppercased()
+        let normalizedModel = Self.modelAliases[modelKey] ?? modelKey
+        return Self.postSetDataModels.contains(normalizedModel)
     }
 
     // MARK: - Read
@@ -265,8 +259,7 @@ public final class KEFSpeakerAPI: Sendable {
         }
         let volume = try Self.validatedVolume(from: entries[2])
         let sourceRaw = entries[1].string("kefPhysicalSource") ?? "standby"
-        let modelRaw = entries[4].string("string_") ?? ""
-        let model = Self.normalizedModelName(from: modelRaw)
+        let model = try Self.validatedModelName(from: entries[4])
         modelCache.value = model
 
         return SpeakerSnapshot(
@@ -331,14 +324,20 @@ public final class KEFSpeakerAPI: Sendable {
         }
 
         let data = try await firstData(path: "settings:/releasetext")
-        let raw = data.string("string_") ?? ""
-        let model = Self.normalizedModelName(from: raw)
+        let model = try Self.validatedModelName(from: data)
         modelCache.value = model
         return model
     }
 
-    private static func normalizedModelName(from raw: String) -> String {
-        raw.components(separatedBy: "_").first ?? raw
+    private static func validatedModelName(from entry: KEFDataEntry) throws -> String {
+        guard let raw = entry.string("string_"),
+              let model = raw.components(separatedBy: "_").first?
+                .trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty else {
+            // The model controls GET versus POST writes. Caching a missing
+            // value would select the wrong protocol for every later command.
+            throw KEFError.invalidResponse
+        }
+        return model
     }
 
     private func getPlayerData() async throws -> KEFDataEntry {
@@ -362,9 +361,9 @@ public final class KEFSpeakerAPI: Sendable {
         return PlayerState(
             isPlaying: data.string("state") == "playing",
             nowPlaying: NowPlayingInfo(
-                title: trackRoles?["title"]?.stringValue,
-                artist: metadata?["artist"]?.stringValue,
-                album: metadata?["album"]?.stringValue
+                title: trackRoles?["title"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+                artist: metadata?["artist"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+                album: metadata?["album"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
             )
         )
     }

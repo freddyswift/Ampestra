@@ -3,7 +3,13 @@ import SwiftUI
 
 struct SpeakerVolumeSettingsSection: View {
     @EnvironmentObject private var appState: AppState
-    @State private var isEditingPresets = false
+    @State private var presetEditor: PresetEditorContext?
+
+    private struct PresetEditorContext: Identifiable {
+        let id = UUID()
+        let host: String
+        let presets: [VolumePreset]
+    }
 
     var body: some View {
         Section {
@@ -28,7 +34,10 @@ struct SpeakerVolumeSettingsSection: View {
                 }
             }
             LabeledContent("Presets") {
-                Button("Edit Presets…") { isEditingPresets = true }
+                Button("Edit Presets…") {
+                    guard let host = appState.currentHost else { return }
+                    presetEditor = PresetEditorContext(host: host, presets: appState.speakerVolumePreferences.presets)
+                }
             }
         } header: {
             Text("Speaker Volume")
@@ -36,9 +45,14 @@ struct SpeakerVolumeSettingsSection: View {
             Text("Saved for this speaker on this Mac. Limits apply to commands sent by Ampestra; other remotes can still change the volume.")
         }
         .disabled(appState.currentHost == nil)
-        .sheet(isPresented: $isEditingPresets) {
-            VolumePresetEditor(preferences: appState.speakerVolumePreferences) {
-                appState.setSpeakerVolumePreferences($0)
+        .sheet(item: $presetEditor) { editor in
+            VolumePresetEditor(presets: editor.presets, canSave: appState.currentHost == editor.host) { presets in
+                guard appState.currentHost == editor.host else { return }
+                // Save only the edited presets, preserving a limit changed
+                // while the sheet was open and never editing another speaker.
+                var preferences = appState.speakerVolumePreferences
+                preferences.presets = presets
+                appState.setSpeakerVolumePreferences(preferences)
             }
         }
     }
@@ -46,15 +60,16 @@ struct SpeakerVolumeSettingsSection: View {
 
 private struct VolumePresetEditor: View {
     @Environment(\.dismiss) private var dismiss
-    @State var preferences: SpeakerVolumePreferences
-    let save: (SpeakerVolumePreferences) -> Void
+    @State var presets: [VolumePreset]
+    let canSave: Bool
+    let save: ([VolumePreset]) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Volume Presets").font(.headline)
             ScrollView {
                 VStack(spacing: 12) {
-                    ForEach($preferences.presets) { $preset in
+                    ForEach($presets) { $preset in
                         HStack {
                             TextField("Name", text: $preset.name)
                                 .textFieldStyle(.roundedBorder)
@@ -62,9 +77,10 @@ private struct VolumePresetEditor: View {
                             Stepper(value: $preset.volume, in: 0...100) {
                                 Text("\(preset.volume)%").monospacedDigit().frame(width: 42)
                             }
-                            .accessibilityLabel("Preset volume")
+                            .accessibilityLabel("Volume for \(preset.name)")
+                            .accessibilityValue("\(preset.volume) percent")
                             Button {
-                                preferences.presets.removeAll { $0.id == preset.id }
+                                presets.removeAll { $0.id == preset.id }
                             } label: {
                                 Image(systemName: "minus.circle")
                             }
@@ -74,20 +90,34 @@ private struct VolumePresetEditor: View {
                 }
             }
             Button("Add Preset") {
-                preferences.presets.append(VolumePreset(name: "New Preset", volume: 25))
+                presets.append(VolumePreset(name: "New Preset", volume: 25))
             }
-            .disabled(preferences.presets.count >= 12)
-            Text("Presets above your volume limit will use the limit.")
+            .disabled(presets.count >= 12)
+            Text(editorStatus)
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Save") { save(preferences); dismiss() }
+                Button("Save") { save(presets); dismiss() }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(preferences.presets.contains { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+                    .disabled(!canSave || hasEmptyPresetName)
             }
         }
         .padding(20)
         .frame(width: 430, height: 330)
+    }
+
+    private var hasEmptyPresetName: Bool {
+        presets.contains { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    private var editorStatus: String {
+        if !canSave {
+            return "Reconnect to the original speaker before saving these presets."
+        }
+        if hasEmptyPresetName {
+            return "Each preset needs a name before you can save."
+        }
+        return "Presets above your volume limit will use the limit."
     }
 }

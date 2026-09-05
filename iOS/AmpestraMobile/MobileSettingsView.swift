@@ -23,14 +23,21 @@ struct MobileSettingsView: View {
             Form {
                 speakerSection
                 if let speakerID = store.currentSpeakerID {
-                    Section("Speaker volume") {
+                    Section {
                         NavigationLink {
-                            MobileVolumeSettingsView(speakerID: speakerID, records: store.speakerRecords) { preset in
+                            MobileVolumeSettingsView(
+                                speakerID: speakerID,
+                                records: store.speakerRecords,
+                                canApplyPreset: store.canControlSpeaker
+                            ) { preset in
                                 store.setVolume(preset.volume)
                             }
                         } label: {
                             Label("Volume limit & presets", systemImage: "slider.horizontal.3")
                         }
+                    } header: {
+                        Text("Speaker volume")
+                            .foregroundStyle(AmpestraTheme.mutedText)
                     }
                 }
                 physicalButtonsSection
@@ -67,27 +74,30 @@ struct MobileSettingsView: View {
     private var speakerSection: some View {
         Section {
             if store.currentHost != nil {
-                LabeledContent("Name", value: store.speakerName)
+                LabeledContent("Name") {
+                    Text(store.speakerName)
+                        .foregroundStyle(AmpestraTheme.mutedText)
+                }
 
                 LabeledContent("Status") {
                     HStack(spacing: 7) {
                         ConnectionDot(state: store.connectionState)
                         Text(store.connectionState.title)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(AmpestraTheme.mutedText)
                     }
                 }
 
                 Button(action: store.reconnectNow) {
                     actionLabel("Reconnect", systemImage: "arrow.clockwise")
                 }
-                .disabled(store.connectionState.isWorking)
+                .disabled(store.connectionState == .connecting)
 
                 Button(action: changeSpeaker) {
                     actionLabel("Change speaker", systemImage: "hifispeaker.2")
                 }
 
                 Button(role: .destructive, action: confirmForgetSpeaker) {
-                    actionLabel("Forget speaker", systemImage: "trash", color: .red)
+                    actionLabel("Forget speaker", systemImage: "trash", color: Self.destructiveTextColor)
                 }
                 .tint(.red)
             } else {
@@ -97,6 +107,7 @@ struct MobileSettingsView: View {
             }
         } header: {
             Text("Speaker")
+                .foregroundStyle(AmpestraTheme.mutedText)
         }
     }
 
@@ -111,7 +122,10 @@ struct MobileSettingsView: View {
             }
 
             Stepper(value: $store.volumeStep, in: VolumePolicy.allowedStepRange) {
-                LabeledContent("Step", value: "\(store.volumeStep)%")
+                LabeledContent("Step") {
+                    Text("\(store.volumeStep)%")
+                        .foregroundStyle(AmpestraTheme.mutedText)
+                }
             }
 
             Toggle("Snap to step multiples", isOn: $store.snapVolumeSteps)
@@ -119,14 +133,21 @@ struct MobileSettingsView: View {
                 .accessibilityIdentifier("snap-volume-steps")
 
             if let error = hardwareButtons.lastError {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
+                Label {
+                    Text(error)
+                        .foregroundStyle(AmpestraTheme.mutedText)
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                }
+                .font(.caption)
             }
         } header: {
             Text("Volume buttons")
+                .foregroundStyle(AmpestraTheme.mutedText)
         } footer: {
             Text("Snapping moves volume to the next or previous step multiple. Available for steps 1, 2, 4, 5, 10, 20, and 25; other steps add or subtract the selected amount.")
+                .foregroundStyle(AmpestraTheme.mutedText)
         }
     }
 
@@ -134,13 +155,14 @@ struct MobileSettingsView: View {
         Section {
             LabeledContent {
                 Text(store.localNetworkPermissionDenied ? "Off" : "Local only")
-                    .foregroundStyle(networkStatusColor)
+                    .foregroundStyle(AmpestraTheme.mutedText)
             } label: {
-                Label(
-                    "Local Network",
-                    systemImage: store.localNetworkPermissionDenied ? "xmark.shield" : "checkmark.shield"
-                )
-                .foregroundStyle(networkStatusColor)
+                Label {
+                    Text("Local Network")
+                } icon: {
+                    Image(systemName: store.localNetworkPermissionDenied ? "xmark.shield" : "checkmark.shield")
+                        .foregroundStyle(networkStatusColor)
+                }
             }
 
             NavigationLink {
@@ -155,6 +177,7 @@ struct MobileSettingsView: View {
 
         } header: {
             Text("More")
+                .foregroundStyle(AmpestraTheme.mutedText)
         }
     }
 
@@ -170,14 +193,22 @@ struct MobileSettingsView: View {
                 .shortcutsLinkStyle(.automaticOutline)
         } header: {
             Text("Siri & Shortcuts")
+                .foregroundStyle(AmpestraTheme.mutedText)
         } footer: {
             Text("Uses \(store.defaultSpeakerName) by default and runs on your local network.")
+                .foregroundStyle(AmpestraTheme.mutedText)
         }
     }
 
     private var networkStatusColor: Color {
         store.localNetworkPermissionDenied ? .orange : .green
     }
+
+    private static let destructiveTextColor = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? .systemRed
+            : UIColor(red: 180 / 255, green: 35 / 255, blue: 32 / 255, alpha: 1)
+    })
 
     private func actionLabel(
         _ title: String,
@@ -243,7 +274,7 @@ private struct SiriShortcutsHelpView: View {
                             .fontWeight(.semibold)
                         Text("No setup is needed. \(defaultSpeakerName) is selected automatically.")
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(AmpestraTheme.mutedText)
                     }
                 } icon: {
                     Image(systemName: "checkmark.circle.fill")
@@ -251,7 +282,7 @@ private struct SiriShortcutsHelpView: View {
                 }
             }
 
-            Section("Try saying") {
+            Section {
                 ForEach(examples) { example in
                     Label {
                         Text("“\(example.command)”")
@@ -267,12 +298,15 @@ private struct SiriShortcutsHelpView: View {
                         Text("“Set speaker volume with Ampestra”")
                         Text("Siri will ask for a number from 0 to 100.")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(AmpestraTheme.mutedText)
                     }
                 } icon: {
                     Image(systemName: "speaker.wave.2.fill")
                         .foregroundStyle(AmpestraTheme.accent)
                 }
+            } header: {
+                Text("Try saying")
+                    .foregroundStyle(AmpestraTheme.mutedText)
             }
 
             Section {
@@ -280,8 +314,10 @@ private struct SiriShortcutsHelpView: View {
                     .shortcutsLinkStyle(.automaticOutline)
             } header: {
                 Text("Customize")
+                    .foregroundStyle(AmpestraTheme.mutedText)
             } footer: {
                 Text("Use Shortcuts to combine speaker actions with scenes, schedules, or other apps.")
+                    .foregroundStyle(AmpestraTheme.mutedText)
             }
         }
         .navigationTitle("Siri & Shortcuts")

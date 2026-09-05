@@ -5,6 +5,48 @@ import XCTest
 
 final class DiscoveryParsingTests: XCTestCase {
     @MainActor
+    func testRAOPFailureKeepsHTTPDiscoveryActive() {
+        let discovery = KEFDiscovery { _, _, _, _ in nil }
+        discovery.isSearching = true
+
+        discovery.handleBrowserState(.failed(.posix(.ECONNREFUSED)), isHTTPBrowser: false, generation: 0)
+
+        XCTAssertTrue(discovery.isSearching)
+        XCTAssertTrue(discovery.lastError?.hasPrefix("RAOP discovery failed:") == true)
+        discovery.stopDiscovery()
+    }
+
+    @MainActor
+    func testHTTPFailureStopsDiscoveryAndRejectsLateBrowserUpdates() {
+        let discovery = KEFDiscovery { _, _, _, _ in nil }
+        discovery.isSearching = true
+
+        discovery.handleBrowserState(.failed(.posix(.ECONNREFUSED)), isHTTPBrowser: true, generation: 0)
+        let error = discovery.lastError
+        discovery.handleBrowserState(.failed(.posix(.ETIMEDOUT)), isHTTPBrowser: false, generation: 0)
+
+        XCTAssertFalse(discovery.isSearching)
+        XCTAssertTrue(error?.hasPrefix("HTTP discovery failed:") == true)
+        XCTAssertEqual(discovery.lastError, error)
+    }
+
+    @MainActor
+    func testPolicyDenialInFailedStateNotifiesAndStopsDiscovery() {
+        let discovery = KEFDiscovery { _, _, _, _ in nil }
+        discovery.isSearching = true
+        var denialCount = 0
+        discovery.localNetworkAccessDeniedHandler = { denialCount += 1 }
+        let failure = NWBrowser.State.failed(.dns(Int32(kDNSServiceErr_PolicyDenied)))
+
+        discovery.handleBrowserState(failure, isHTTPBrowser: true, generation: 0)
+        discovery.handleBrowserState(failure, isHTTPBrowser: false, generation: 0)
+
+        XCTAssertEqual(denialCount, 1)
+        XCTAssertFalse(discovery.isSearching)
+        XCTAssertEqual(discovery.lastError, "Local Network access is off.")
+    }
+
+    @MainActor
     func testDiscoveryFloodLimitsConcurrentAndTotalResolutions() async {
         let completed = expectation(description: "Bounded services resolved")
         completed.expectedFulfillmentCount = KEFDiscovery.maximumServices

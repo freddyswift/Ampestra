@@ -172,6 +172,7 @@ struct SpeakerMenuView: View {
                 .controlSize(.small)
                 .panelContentButtonStyle()
                 .help("Rescan")
+                .accessibilityLabel("Rescan for speakers")
                 .disabled(appState.discovery.isSearching || appState.isBusy)
             }
 
@@ -202,11 +203,13 @@ struct SpeakerMenuView: View {
                 Text(speaker.name)
                     .font(.caption.weight(.semibold))
                     .lineLimit(1)
+                    .help(speaker.name)
 
                 Text(speaker.host)
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .help(speaker.host)
             }
 
             Spacer(minLength: 8)
@@ -221,7 +224,8 @@ struct SpeakerMenuView: View {
                 }
             }
             .controlSize(.small)
-            .disabled(appState.isBusy || appState.isReconnecting)
+            .disabled(appState.isBusy || isConnecting(to: speaker))
+            .accessibilityLabel("Connect to \(speaker.name)")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -252,7 +256,7 @@ struct SpeakerMenuView: View {
             }
             .controlSize(.small)
             .panelContentButtonStyle()
-            .disabled(appState.isBusy || appState.isReconnecting)
+            .disabled(appState.isBusy)
         }
 
         Button(reconnectButtonTitle) {
@@ -260,7 +264,7 @@ struct SpeakerMenuView: View {
         }
         .controlSize(.small)
         .panelContentButtonStyle(prominent: true)
-        .disabled(appState.isBusy || appState.isReconnecting || appState.discovery.isSearching)
+        .disabled(appState.isBusy || appState.discovery.isSearching)
 
         Button("Connection Settings") {
             showSettingsFrontmost()
@@ -275,6 +279,7 @@ struct SpeakerMenuView: View {
                 Text(headerTitle)
                     .font(.headline.weight(.semibold))
                     .lineLimit(1)
+                    .help(headerTitle)
 
                 HStack(spacing: 6) {
                     if appState.isBusy {
@@ -290,7 +295,9 @@ struct SpeakerMenuView: View {
                     Text(headerSubtitle)
                         .font(.caption)
                         .foregroundStyle(PanelColors.secondaryText)
-                        .lineLimit(1)
+                        .lineLimit(appState.isConnected ? 1 : 3)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .help(headerSubtitle)
                 }
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("\(statusBadgeText), \(headerSubtitle)")
@@ -321,6 +328,7 @@ struct SpeakerMenuView: View {
             .controlSize(.small)
             .panelFloatingButtonStyle()
             .help("Ampestra menu")
+            .accessibilityLabel("Ampestra menu")
         }
     }
 
@@ -421,27 +429,28 @@ struct SpeakerMenuView: View {
             MenuBarVolumeControl(
                 volume: $sliderVolume,
                 step: appState.volumeSliderStep,
+                maximumVolume: appState.maximumSpeakerVolume,
                 isDisabled: appState.isBusy || appState.status != .powerOn,
                 volumeChanged: { newVolume in
                     guard newVolume != appState.displayedVolume else { return }
-                    let target = appState.speakerVolumePreferences.clampedVolume(newVolume)
-                    if newVolume != target { sliderVolume = Double(target) }
-                    appState.commitVolume(target)
+                    appState.commitVolume(newVolume)
                 },
                 muteAction: appState.toggleSpeakerMute
             )
-            if !appState.speakerVolumePreferences.presets.isEmpty {
+            if !appState.speakerVolumePreferences.presets.isEmpty || appState.maximumSpeakerVolume < 100 {
                 HStack {
-                    Menu("Presets") {
-                        ForEach(appState.speakerVolumePreferences.presets) { preset in
-                            Button("\(String(preset.name.prefix(20))) · \(appState.speakerVolumePreferences.clampedVolume(preset.volume))%") {
-                                appState.applyVolumePreset(preset)
+                    if !appState.speakerVolumePreferences.presets.isEmpty {
+                        Menu("Presets") {
+                            ForEach(appState.speakerVolumePreferences.presets) { preset in
+                                Button("\(String(preset.name.prefix(20))) · \(appState.speakerVolumePreferences.clampedVolume(preset.volume))%") {
+                                    appState.applyVolumePreset(preset)
+                                }
                             }
                         }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                        .disabled(appState.isBusy || appState.status != .powerOn)
                     }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-                    .disabled(appState.isBusy || appState.status != .powerOn)
                     Spacer()
                     if appState.maximumSpeakerVolume < 100 {
                         Text("Limit \(appState.maximumSpeakerVolume)%")
@@ -577,7 +586,7 @@ struct SpeakerMenuView: View {
 
     private var reconnectButtonTitle: String {
         if appState.isReconnecting {
-            return "Reconnecting…"
+            return "Retry Connection"
         }
         if appState.discovery.isSearching {
             return "Scanning…"

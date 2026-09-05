@@ -3,6 +3,7 @@ import SwiftUI
 
 struct VolumeControlCard: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var store: RemoteStore
     let compact: Bool
     @State private var previousSliderVolume: Int?
@@ -26,15 +27,17 @@ struct VolumeControlCard: View {
                 }
                 .font(.caption.weight(.semibold))
                 .tracking(1.1)
-                .foregroundStyle(store.isMuted ? .secondary : AmpestraTheme.accentBright)
+                .foregroundStyle(store.isMuted ? AmpestraTheme.mutedText : AmpestraTheme.accentBright)
 
                 AnimatedVolumeNumber(
                     value: store.volume,
                     compact: compact,
                     emphasizesChange: previousSliderVolume == nil
                 )
-                    .foregroundStyle(store.isMuted ? .secondary : .primary)
+                    .foregroundStyle(store.isMuted ? AmpestraTheme.mutedText : .primary)
+                    .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Speaker volume, \(store.volume) percent")
+                    .accessibilityIdentifier("volume-reading")
             }
 
             Slider(
@@ -45,11 +48,11 @@ struct VolumeControlCard: View {
             } minimumValueLabel: {
                 Image(systemName: "speaker.fill")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AmpestraTheme.mutedText)
             } maximumValueLabel: {
                 Image(systemName: "speaker.wave.3.fill")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AmpestraTheme.mutedText)
             } onEditingChanged: {
                 volumeEditingChanged($0)
             }
@@ -57,7 +60,7 @@ struct VolumeControlCard: View {
             .tint(AmpestraTheme.accent)
             .frame(maxWidth: 390)
             .animation(
-                previousSliderVolume == nil ? .smooth(duration: 0.3) : nil,
+                previousSliderVolume == nil && !reduceMotion ? .smooth(duration: 0.3) : nil,
                 value: store.volume
             )
             .accessibilityValue("\(store.volume) percent")
@@ -148,7 +151,7 @@ struct VolumeControlCard: View {
     }
 
     private var controlDiameter: CGFloat {
-        compact ? 40 : 48
+        compact ? 44 : 48
     }
 }
 
@@ -158,6 +161,9 @@ private struct AnimatedVolumeNumber: View {
     let emphasizesChange: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .largeTitle) private var scaledCompactFontSize = 64.0
+    @ScaledMetric(relativeTo: .largeTitle) private var scaledRegularFontSize = 96.0
     @State private var displayedValue: Int
     @State private var movesUp = true
 
@@ -169,6 +175,16 @@ private struct AnimatedVolumeNumber: View {
     }
 
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            digits(fontSize: fontSize)
+            digits(fontSize: min(fontSize, 128))
+        }
+        .onChange(of: value) { _, newValue in
+            updateDisplayedValue(to: newValue)
+        }
+    }
+
+    private func digits(fontSize: CGFloat) -> some View {
         HStack(spacing: 0) {
             ForEach(digitSlots) { slot in
                 OdometerDigit(
@@ -180,11 +196,8 @@ private struct AnimatedVolumeNumber: View {
                 .transition(digitInsertionTransition)
             }
         }
-        .frame(width: compact ? 150 : 220, height: digitHeight)
+        .frame(width: fontSize * 1.9, height: fontSize * 1.22)
         .clipped()
-        .onChange(of: value) { _, newValue in
-            updateDisplayedValue(to: newValue)
-        }
     }
 
     private var digitSlots: [DigitSlot] {
@@ -224,11 +237,11 @@ private struct AnimatedVolumeNumber: View {
     }
 
     private var fontSize: CGFloat {
-        compact ? 64 : 96
-    }
-
-    private var digitHeight: CGFloat {
-        compact ? 78 : 116
+        let usesCompactFont = compact && !dynamicTypeSize.isAccessibilitySize
+        let scaledSize = usesCompactFont ? scaledCompactFontSize : scaledRegularFontSize
+        // Accessibility layouts use compact spacing, but must never shrink the
+        // main reading. Bound three-digit values to fit narrow phones.
+        return min(160, max(dynamicTypeSize.isAccessibilitySize ? 96 : 0, scaledSize))
     }
 
     private struct DigitSlot: Identifiable {
@@ -281,17 +294,19 @@ struct PlaybackControlCard: View {
                     Text("NOW PLAYING")
                         .font(.caption2.weight(.semibold))
                         .tracking(0.8)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AmpestraTheme.mutedText)
 
                     Text(store.nowPlaying?.title ?? "Current track")
                         .font(compact ? .subheadline.weight(.semibold) : .headline)
-                        .lineLimit(1)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     if let detail {
                         Text(detail)
                             .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                            .foregroundStyle(AmpestraTheme.mutedText)
+                            .lineLimit(nil)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
 
@@ -360,7 +375,7 @@ struct PlaybackControlCard: View {
     }
 
     private func controlDiameter(prominent: Bool) -> CGFloat {
-        if compact { return prominent ? 48 : 42 }
+        if compact { return prominent ? 48 : 44 }
         return prominent ? 56 : 48
     }
 
@@ -401,7 +416,7 @@ struct StandbyControlCard: View {
 
                     Text(guidance)
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AmpestraTheme.mutedText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
@@ -427,7 +442,7 @@ struct StandbyControlCard: View {
                     }
                     .font(.headline)
                     .frame(maxWidth: .infinity)
-                    .frame(height: compact ? 44 : 48)
+                    .frame(minHeight: compact ? 44 : 48)
                 }
                 .ampestraGlassButton(prominent: true)
                 .buttonBorderShape(.capsule)
@@ -469,6 +484,7 @@ struct SpeakerActionsRow: View {
             NavigationStack {
                 List { sourceOptions }
                     .navigationTitle("Source")
+                    .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
                             Button("Done") { isShowingSourcePicker = false }
@@ -540,10 +556,15 @@ struct SpeakerActionsRow: View {
                 }
                 isShowingSourcePicker = false
             } label: {
-                Label(source.displayName, systemImage: source.systemImage)
-                if source == store.source { Image(systemName: "checkmark") }
+                HStack {
+                    Label(source.displayName, systemImage: source.systemImage)
+                    Spacer()
+                    if source == store.source { Image(systemName: "checkmark") }
+                }
             }
             .accessibilityLabel(source.displayName)
+            .accessibilityAddTraits(source == store.source ? .isSelected : [])
+            .disabled(!store.canControlSpeaker || store.isSendingCommand)
         }
     }
 
@@ -569,7 +590,7 @@ private struct ControlTileLabel: View {
             menuIndicator
         }
         .padding(.horizontal, compact ? 8 : 10)
-        .frame(maxWidth: .infinity, minHeight: compact ? 40 : 44, alignment: .center)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .center)
         .contentShape(Capsule())
     }
 
@@ -577,7 +598,7 @@ private struct ControlTileLabel: View {
         VStack(spacing: 2) {
             Text(title)
                 .font(.caption2.weight(.medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AmpestraTheme.mutedText)
             Text(value)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.primary)

@@ -8,7 +8,7 @@ final class WidgetSpeakerSelectionTests: XCTestCase {
     func testSelectedWidgetRetainsTargetWhenDefaultChanges() throws {
         let records = makeRecords()
         let first = try save("living.local", name: "Living Room", in: records)
-        var configuration = SelectWidgetSpeakerIntent()
+        let configuration = SelectWidgetSpeakerIntent()
         configuration.speaker = WidgetSpeakerEntity(record: first)
         let second = try save("kitchen.local", name: "Kitchen", in: records)
 
@@ -24,7 +24,7 @@ final class WidgetSpeakerSelectionTests: XCTestCase {
 
         let resolved = WidgetSpeakerEntityQuery.resolve([first.id], records: records)
         XCTAssertEqual(resolved.map(\.id), [first.id], "Keep a tombstone so WidgetKit cannot clear the selection")
-        var configuration = SelectWidgetSpeakerIntent()
+        let configuration = SelectWidgetSpeakerIntent()
         configuration.speaker = try XCTUnwrap(resolved.first)
         XCTAssertNil(configuration.selectedSpeaker(in: records))
         XCTAssertEqual(records.defaultSpeaker()?.id, second.id)

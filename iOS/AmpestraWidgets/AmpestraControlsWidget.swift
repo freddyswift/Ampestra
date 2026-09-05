@@ -79,12 +79,9 @@ struct AmpestraControlsWidgetView: View {
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.cyan)
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text(entry.speakerName)
-                    .font(.headline)
-                    .lineLimit(1)
-
-            }
+            Text(entry.speakerName)
+                .font(.headline)
+                .lineLimit(1)
         }
     }
 

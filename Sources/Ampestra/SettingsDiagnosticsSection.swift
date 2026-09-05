@@ -6,6 +6,7 @@ struct SettingsDiagnosticsSection: View {
     @EnvironmentObject private var updateController: UpdateController
 
     @State private var didCopy = false
+    @State private var resetCopyTask: Task<Void, Never>?
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -29,6 +30,11 @@ struct SettingsDiagnosticsSection: View {
             .controlSize(.small)
             .help("Copy diagnostics")
         }
+        .onDisappear {
+            resetCopyTask?.cancel()
+            resetCopyTask = nil
+            didCopy = false
+        }
     }
 
     private func copyDiagnostics() {
@@ -36,13 +42,18 @@ struct SettingsDiagnosticsSection: View {
             appState: appState,
             updateController: updateController
         )
+        resetCopyTask?.cancel()
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(report, forType: .string)
-        didCopy = true
+        didCopy = NSPasteboard.general.setString(report, forType: .string)
 
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2))
+        resetCopyTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .seconds(2))
+            } catch {
+                return
+            }
             didCopy = false
+            resetCopyTask = nil
         }
     }
 }

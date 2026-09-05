@@ -118,6 +118,7 @@ struct OnboardingView: View {
                         Label("Rescan", systemImage: "arrow.clockwise")
                     }
                     .controlSize(.small)
+                    .disabled(appState.isBusy)
 
                     Button {
                         settingsAction()
@@ -147,11 +148,13 @@ struct OnboardingView: View {
                 Text(speaker.name)
                     .font(.caption.weight(.semibold))
                     .lineLimit(1)
+                    .help(speaker.name)
 
                 Text(speaker.host)
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .help(speaker.host)
             }
 
             Spacer(minLength: 8)
@@ -166,7 +169,8 @@ struct OnboardingView: View {
                 }
             }
             .controlSize(.small)
-            .disabled(appState.isReconnecting || appState.isBusy)
+            .disabled(appState.isBusy || isConnecting(to: speaker))
+            .accessibilityLabel("Connect to \(speaker.name)")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)

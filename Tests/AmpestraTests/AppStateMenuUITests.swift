@@ -166,7 +166,8 @@ final class AppStateMenuUITests: XCTestCase {
     func testStateChangeTimeoutSurfacesActionError() async {
         let speaker = MenuUITestSpeaker()
         let appState = makeConnectedAppState(speaker: speaker)
-        await waitUntil { appState.isConnected }
+        // Commands become available after the initial snapshot confirms power.
+        await waitUntil { appState.isConnected && appState.status == .powerOn }
 
         appState.setSource(.tv)
 

@@ -8,7 +8,15 @@ enum AmpestraTheme {
     static let surface = Color(uiColor: .secondarySystemGroupedBackground)
     static let surfaceStrong = Color(uiColor: .tertiarySystemGroupedBackground)
     static let control = Color(uiColor: .tertiarySystemFill)
-    static let mutedText = Color.secondary
+    // Opaque secondary text keeps sufficient contrast over both cards and glass.
+    static let mutedText = Color(uiColor: UIColor { traits in
+        if traits.accessibilityContrast == .high {
+            return .label
+        }
+        return traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.70, green: 0.72, blue: 0.76, alpha: 1)
+            : UIColor(red: 0.36, green: 0.38, blue: 0.42, alpha: 1)
+    })
     static let cardCornerRadius: CGFloat = 22
     static let nestedCornerRadius: CGFloat = 16
     static let iconCornerRadiusRatio: CGFloat = 0.3
@@ -211,12 +219,12 @@ struct SectionLabel: View {
         HStack(alignment: .firstTextBaseline) {
             Text(title.uppercased())
                 .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AmpestraTheme.mutedText)
             Spacer()
             if let detail {
                 Text(detail)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AmpestraTheme.mutedText)
             }
         }
     }

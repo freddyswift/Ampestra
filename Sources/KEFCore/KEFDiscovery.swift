@@ -81,7 +81,7 @@ public final class KEFDiscovery: ObservableObject {
         }
         raopBrowser?.stateUpdateHandler = { [weak self] state in
             Task { @MainActor in
-                self?.handleBrowserState(state, label: "RAOP", generation: generation)
+                self?.handleBrowserState(state, isHTTPBrowser: false, generation: generation)
             }
         }
         raopBrowser?.start(queue: .global(qos: .utility))
@@ -107,7 +107,7 @@ public final class KEFDiscovery: ObservableObject {
         }
         httpBrowser?.stateUpdateHandler = { [weak self] state in
             Task { @MainActor in
-                self?.handleBrowserState(state, label: "HTTP", generation: generation)
+                self?.handleBrowserState(state, isHTTPBrowser: true, generation: generation)
             }
         }
         httpBrowser?.start(queue: .global(qos: .utility))
@@ -188,17 +188,23 @@ public final class KEFDiscovery: ObservableObject {
         )
     }
 
-    private func handleBrowserState(_ state: NWBrowser.State, label: String, generation: Int) {
+    func handleBrowserState(_ state: NWBrowser.State, isHTTPBrowser: Bool, generation: Int) {
         guard generation == discoveryGeneration else { return }
 
         switch state {
-        case .waiting(let error) where Self.isLocalNetworkPolicyDenied(error):
+        case .waiting(let error) where Self.isLocalNetworkPolicyDenied(error),
+             .failed(let error) where Self.isLocalNetworkPolicyDenied(error):
             lastError = "Local Network access is off."
             localNetworkAccessDeniedHandler?()
             stopDiscovery(generation: generation)
         case .failed(let error):
+            let label = isHTTPBrowser ? "HTTP" : "RAOP"
             lastError = "\(label) discovery failed: \(error.localizedDescription)"
-            isSearching = false
+            // RAOP only supplies optional Wake-on-LAN addresses. Its failure
+            // must not mark the still-running HTTP search as finished.
+            if isHTTPBrowser {
+                stopDiscovery(generation: generation)
+            }
         case .cancelled:
             break
         default:

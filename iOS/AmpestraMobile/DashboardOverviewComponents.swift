@@ -2,12 +2,16 @@ import SwiftUI
 
 struct SpeakerOverviewCard: View {
     @ObservedObject var store: RemoteStore
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let compact: Bool
     let chooseSpeaker: () -> Void
     let showSettings: () -> Void
 
     var body: some View {
-        HStack(spacing: compact ? 8 : 12) {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+            : AnyLayout(HStackLayout(spacing: compact ? 8 : 12))
+        layout {
             Button(action: chooseSpeaker) {
                 HStack(spacing: compact ? 9 : 12) {
                     RemoteIcon(systemName: speakerIcon, size: compact ? 38 : 44)
@@ -16,7 +20,8 @@ struct SpeakerOverviewCard: View {
                         Text(store.speakerName)
                             .font(compact ? .headline : .title3.weight(.semibold))
                             .foregroundStyle(.primary)
-                            .lineLimit(1)
+                            .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                            .fixedSize(horizontal: false, vertical: true)
 
                         HStack(spacing: 7) {
                             if let notice = store.notice {
@@ -30,12 +35,12 @@ struct SpeakerOverviewCard: View {
                                 ConnectionDot(state: store.connectionState)
 
                                 Text(statusText)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(AmpestraTheme.mutedText)
                             }
                         }
                         .font(.subheadline)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.82)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                        .fixedSize(horizontal: false, vertical: true)
                         .contentTransition(.opacity)
                     }
 
@@ -48,20 +53,20 @@ struct SpeakerOverviewCard: View {
             .accessibilityHint("Opens speaker connection options")
 
             HStack(spacing: compact ? 6 : 8) {
-                if store.connectionState.isWorking {
+                if store.connectionState == .connecting {
                     ProgressView()
                         .controlSize(.small)
                         .tint(AmpestraTheme.accentBright)
-                        .frame(width: 30, height: 30)
+                        .frame(width: 44, height: 44)
                 } else if shouldShowRefresh {
                     Button(action: refreshSpeaker) {
                         Image(systemName: "arrow.clockwise")
                             .font(.system(size: 14, weight: .semibold))
-                            .frame(width: 30, height: 30)
+                            .frame(width: 44, height: 44)
                     }
                     .ampestraGlassButton()
                     .buttonBorderShape(.circle)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AmpestraTheme.mutedText)
                     .accessibilityLabel(refreshAccessibilityLabel)
                 } else {
                     if !store.hasConfiguredSpeaker {
@@ -75,7 +80,7 @@ struct SpeakerOverviewCard: View {
                 Button(action: showSettings) {
                     Image(systemName: "gearshape")
                         .font(.system(size: 14, weight: .semibold))
-                        .frame(width: 30, height: 30)
+                        .frame(width: 44, height: 44)
                 }
                 .ampestraGlassButton()
                 .buttonBorderShape(.circle)
@@ -144,13 +149,15 @@ struct RemoteErrorBanner: View {
                     .font(.subheadline.weight(.semibold))
                 Text(store.lastError ?? "The speaker could not be reached.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AmpestraTheme.mutedText)
                     .fixedSize(horizontal: false, vertical: true)
 
                 if store.currentHost != nil {
                     Button("Try again", action: store.reconnectNow)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(AmpestraTheme.accentBright)
+                        .frame(minHeight: 44)
+                        .disabled(store.connectionState == .connecting)
                 }
             }
 
@@ -159,10 +166,10 @@ struct RemoteErrorBanner: View {
             Button(action: store.clearError) {
                 Image(systemName: "xmark")
                     .font(.caption.weight(.bold))
-                    .frame(width: 30, height: 30)
+                    .frame(width: 44, height: 44)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(AmpestraTheme.mutedText)
             .accessibilityLabel("Dismiss error")
         }
         .padding(16)
@@ -190,14 +197,14 @@ struct ChooseSpeakerCard: View {
                 .font(.headline)
             Text("Connect to a supported KEF speaker on your local network.")
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AmpestraTheme.mutedText)
                 .multilineTextAlignment(.center)
 
             Button(action: chooseSpeaker) {
                 Label("Choose a speaker", systemImage: "plus")
                     .font(.headline)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 48)
+                    .frame(minHeight: 48)
             }
             .ampestraGlassButton(prominent: true)
             .buttonBorderShape(.capsule)

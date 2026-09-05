@@ -35,6 +35,7 @@ check:
 	plutil -lint iOS/AmpestraMobile/AmpestraMobile.entitlements
 	plutil -lint iOS/AmpestraWidgets/Info.plist
 	plutil -lint iOS/AmpestraWidgets/AmpestraWidgets.entitlements
+	plutil -lint iOS/AmpestraShared/PrivacyInfo.xcprivacy
 	plutil -lint $(IOS_EXPORT_OPTIONS)
 	$(MAKE) version-check
 

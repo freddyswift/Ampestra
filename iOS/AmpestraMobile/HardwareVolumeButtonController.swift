@@ -47,11 +47,10 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
     }
 
     func attach(volumeView: MPVolumeView) {
-        if let slider = volumeView.allDescendants.lazy.compactMap({ $0 as? UISlider }).first {
-            volumeSlider = slider
-        }
+        guard let slider = volumeView.firstVolumeSlider, slider !== volumeSlider else { return }
+        volumeSlider = slider
 
-        if wantsCapture, isCapturing, volumeSlider != nil {
+        if wantsCapture, isCapturing {
             recenterSystemVolume(after: .zero)
         }
     }
@@ -207,6 +206,7 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
     private func handleLifecycleEvent(_ event: AudioSessionLifecycleEvent) {
         switch event {
         case .interrupted:
+            guard wantsCapture else { return }
             activationRequestID &+= 1
             isActivating = false
             isInterrupted = true
@@ -372,7 +372,11 @@ struct SystemVolumeCaptureView: UIViewRepresentable {
 }
 
 private extension UIView {
-    var allDescendants: [UIView] {
-        subviews + subviews.flatMap(\.allDescendants)
+    var firstVolumeSlider: UISlider? {
+        if let slider = self as? UISlider { return slider }
+        for subview in subviews {
+            if let slider = subview.firstVolumeSlider { return slider }
+        }
+        return nil
     }
 }

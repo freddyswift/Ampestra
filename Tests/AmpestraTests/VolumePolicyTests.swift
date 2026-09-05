@@ -30,6 +30,32 @@ final class VolumePolicyTests: XCTestCase {
         XCTAssertEqual(policy.nextVolume(from: 100, direction: 1), 100)
     }
 
+    func testFixedStepsPreserveBothVolumeEndpoints() {
+        for stepSize in VolumePolicy.allowedStepRange {
+            let policy = VolumePolicy(usesFixedSteps: true, stepSize: stepSize)
+            XCTAssertEqual(policy.normalizedVolume(0), 0, "Step size: \(stepSize)")
+            XCTAssertEqual(policy.normalizedVolume(100), 100, "Step size: \(stepSize)")
+            XCTAssertEqual(policy.normalizedVolume(-1), 0, "Step size: \(stepSize)")
+            XCTAssertEqual(policy.normalizedVolume(101), 100, "Step size: \(stepSize)")
+        }
+    }
+
+    func testFixedStepAdjustmentReachesBothVolumeEndpoints() {
+        for stepSize in VolumePolicy.allowedStepRange {
+            let policy = VolumePolicy(usesFixedSteps: true, stepSize: stepSize)
+            var volume = 0
+            for _ in 0..<100 {
+                volume = policy.normalizedVolume(policy.nextVolume(from: volume, direction: 1))
+            }
+            XCTAssertEqual(volume, 100, "Step size: \(stepSize)")
+
+            for _ in 0..<100 {
+                volume = policy.normalizedVolume(policy.nextVolume(from: volume, direction: -1))
+            }
+            XCTAssertEqual(volume, 0, "Step size: \(stepSize)")
+        }
+    }
+
     func testMuteToggleStoresCurrentVolumeAndMutes() {
         let result = VolumePolicy.muteToggle(from: 37, restoreVolume: nil)
 

@@ -37,6 +37,7 @@ struct StatusRow<Accessory: View>: View {
             Image(systemName: systemImage)
                 .foregroundStyle(tint)
                 .frame(width: 16)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)

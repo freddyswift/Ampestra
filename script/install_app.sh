@@ -205,12 +205,6 @@ if [[ "$install_after_build" == true ]]; then
   confirm_install
 fi
 
-if [[ "$install_after_build" == true ]] && pgrep -x "$APP_EXECUTABLE" >/dev/null; then
-  echo "Closing the running copy of $APP_DISPLAY_NAME..."
-  killall "$APP_EXECUTABLE" >/dev/null 2>&1 || true
-  sleep 0.2
-fi
-
 echo "Building $APP_DISPLAY_NAME.app from source..."
 "$SWIFT" build -c release --product "$PAYLOAD_PRODUCT"
 BIN_DIR="$("$SWIFT" build -c release --show-bin-path)"
@@ -242,6 +236,12 @@ codesign_app
 codesign --verify --deep --strict "$APP_DIR"
 
 if [[ "$install_after_build" == true ]]; then
+  # Keep the installed app available if compilation, staging or signing fails.
+  if pgrep -x "$APP_EXECUTABLE" >/dev/null; then
+    echo "Closing the running copy of $APP_DISPLAY_NAME..."
+    killall "$APP_EXECUTABLE" >/dev/null 2>&1 || true
+    sleep 0.2
+  fi
   install_app
 fi
 

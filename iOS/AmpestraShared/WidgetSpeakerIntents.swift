@@ -32,8 +32,9 @@ struct WidgetSpeakerEntityQuery: EntityQuery {
     }
 
     static func resolve(_ identifiers: [String], records: SpeakerRecordStore) -> [WidgetSpeakerEntity] {
-        identifiers.map { id in
-            records.speaker(id: id).map(WidgetSpeakerEntity.init)
+        let saved = Dictionary(records.allSpeakers().map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return identifiers.map { id in
+            saved[id].map(WidgetSpeakerEntity.init)
                 ?? WidgetSpeakerEntity(id: id, name: "Speaker unavailable")
         }
     }

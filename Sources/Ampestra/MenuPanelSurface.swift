@@ -165,7 +165,7 @@ enum MenuPanelLayout {
     static let width: CGFloat = 336
 }
 
-private struct MenuPanelWindowSizer: NSViewRepresentable {
+struct MenuPanelWindowSizer: NSViewRepresentable {
     func makeNSView(context: Context) -> SizingView {
         SizingView()
     }
@@ -181,6 +181,10 @@ private struct MenuPanelWindowSizer: NSViewRepresentable {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            // A measurement belongs to its window. SwiftUI may measure this
+            // view while detached or move it to a newly created menu window.
+            lastScheduledSize = .zero
+            lastAppliedContentSize = .zero
             scheduleWindowResize()
         }
 
@@ -195,9 +199,10 @@ private struct MenuPanelWindowSizer: NSViewRepresentable {
         }
 
         func scheduleWindowResize() {
-            guard !isResizeScheduled else { return }
+            guard window != nil, !isResizeScheduled else { return }
             let measuredSize = bounds.size
-            guard measuredSize.width > 0, measuredSize.height > 0 else { return }
+            guard measuredSize.width.isFinite, measuredSize.height.isFinite,
+                  measuredSize.width > 0, measuredSize.height > 0 else { return }
             guard abs(lastScheduledSize.width - measuredSize.width) > 0.5 ||
                   abs(lastScheduledSize.height - measuredSize.height) > 0.5 else {
                 return

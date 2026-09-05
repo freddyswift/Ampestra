@@ -449,7 +449,7 @@ final class AppState: ObservableObject {
     private func runBusySpeakerAction(
         _ action: @escaping @MainActor (KEFSpeakerClient) async throws -> Void
     ) {
-        guard let speaker, !isBusy else { return }
+        guard let speaker, isConnected, !isBusy else { return }
 
         clearActionError()
         updateIfChanged(\.isBusy, true)
@@ -480,11 +480,13 @@ final class AppState: ObservableObject {
     }
 
     private func handleSpeakerActionError(_ error: Error, for speaker: KEFSpeakerClient) async {
-        guard self.speaker === speaker else { return }
+        guard !Task.isCancelled, self.speaker === speaker else { return }
         clearsActionErrorAfterHealthyRefresh = Self.isRecoverableNetworkActionError(error)
         updateIfChanged(\.actionError, error.localizedDescription)
 
-        if await speaker.testConnection() {
+        let isReachable = await speaker.testConnection()
+        guard !Task.isCancelled, self.speaker === speaker else { return }
+        if isReachable {
             markConnectionHealthy(for: speaker)
             await refresh()
         } else {
@@ -497,6 +499,7 @@ final class AppState: ObservableObject {
     }
 
     private func commitVolume(_ newVolume: Int, applyingStepPolicy: Bool) {
+        guard canAdjustSpeakerVolume, let speaker else { return }
         let normalizedVolume = applyingStepPolicy
             ? volumePolicy.normalizedVolume(newVolume)
             : VolumePolicy.clampedVolume(newVolume)
@@ -521,7 +524,6 @@ final class AppState: ObservableObject {
             }
         }
 
-        guard let speaker else { return }
         if !isVolumeHUDSuppressed {
             volumeHUD.show(
                 title: volumeHUDTitle,
@@ -582,6 +584,7 @@ final class AppState: ObservableObject {
     }
 
     private func toggleMute() {
+        guard canAdjustSpeakerVolume else { return }
         let result = VolumePolicy.muteToggle(
             from: displayedVolume,
             restoreVolume: volumeBeforeMediaKeyMute
@@ -601,7 +604,13 @@ final class AppState: ObservableObject {
         speakerModel.isEmpty ? speakerName : speakerModel
     }
 
+    private var canAdjustSpeakerVolume: Bool {
+        isConnected && status == .powerOn && !isBusy && speaker != nil
+    }
+
     func setSource(_ newSource: SpeakerSource) {
+        guard canAdjustSpeakerVolume, newSource != source else { return }
+        volumeCommandCoordinator.cancel()
         clearPendingVolume()
 
         runBusySpeakerAction { speaker in
@@ -616,7 +625,9 @@ final class AppState: ObservableObject {
     }
 
     func togglePower() {
-        guard status.allowsPowerToggle else { return }
+        guard isConnected, !isBusy, status.allowsPowerToggle else { return }
+        volumeCommandCoordinator.cancel()
+        clearPendingVolume()
         let wasPoweredOn = status == .powerOn
 
         runBusySpeakerAction { speaker in
@@ -690,16 +701,22 @@ final class AppState: ObservableObject {
         }
     }
 
+    func resetVolumeForInputChange() {
+        volumeCommandCoordinator.cancel()
+        clearPendingVolume()
+        volumeBeforeMediaKeyMute = nil
+    }
+
     // MARK: - Media keys
 
-    private func handleVolumeKey(_ delta: Int) -> Bool {
-        guard shouldRouteVolumeKeysToSpeaker else { return false }
+    func handleVolumeKey(_ delta: Int) -> Bool {
+        guard canAdjustSpeakerVolume, shouldRouteVolumeKeysToSpeaker else { return false }
         adjustVolume(by: delta)
         return true
     }
 
-    private func handleMuteKey() -> Bool {
-        guard shouldRouteVolumeKeysToSpeaker else { return false }
+    func handleMuteKey() -> Bool {
+        guard canAdjustSpeakerVolume, shouldRouteVolumeKeysToSpeaker else { return false }
         toggleMute()
         return true
     }

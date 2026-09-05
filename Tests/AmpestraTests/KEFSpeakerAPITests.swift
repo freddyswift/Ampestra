@@ -157,6 +157,113 @@ final class KEFSpeakerAPITests: XCTestCase {
         XCTAssertEqual(body.value["kefPhysicalSource"], .string("tv"))
     }
 
+    func testInvalidModelDoesNotSendCommandOrPoisonProtocolCache() async throws {
+        for invalidModel in ["{}", #"{"string_":null}"#, #"{"string_":42}"#,
+                             #"{"string_":""}"#, #"{"string_":"   "}"#, #"{"string_":"_V30137"}"#] {
+            let modelReads = LockedValue(0)
+            let (api, recorder) = makeAPI { request in
+                if request.queryValue("path") == "settings:/releasetext" {
+                    modelReads.value += 1
+                    return .json(modelReads.value == 1 ? "[\(invalidModel)]" : #"[{"string_":"LSXII_V30137"}]"#)
+                }
+                return .json("true")
+            }
+
+            do {
+                try await api.setVolume(25)
+                XCTFail("Expected malformed model to reject command: \(invalidModel)")
+            } catch KEFError.invalidResponse {
+                XCTAssertEqual(recorder.requests.count, 1, "A write needs a valid model")
+            }
+
+            try await api.setVolume(25)
+            try await api.setVolume(26)
+
+            XCTAssertEqual(modelReads.value, 2, "Invalid models must be retried; valid models stay cached")
+            XCTAssertEqual(recorder.requests.suffix(2).map(\.method), ["POST", "POST"])
+        }
+    }
+
+    func testWriteProtocolAcceptsTrimmedCaseInsensitiveModelAliases() async throws {
+        let (api, recorder) = makeAPI { request in
+            if request.queryValue("path") == "settings:/releasetext" {
+                return .json(#"[{"string_":"  lsx2  _V30137"}]"#)
+            }
+            return .json("true")
+        }
+
+        try await api.setVolume(25)
+
+        XCTAssertEqual(recorder.requests.last?.method, "POST")
+    }
+
+    func testSnapshotFallsBackWhenModelIsMissing() async throws {
+        let (api, recorder) = makeAPI { request in
+            let status = #"{"kefSpeakerStatus":"powerOn"}"#
+            let source = #"{"kefPhysicalSource":"tv"}"#
+            let volume = #"{"i32_":24}"#
+            let name = #"{"string_":"Living Room"}"#
+            let path = request.queryValue("path") ?? ""
+            if path.contains(",") {
+                return .json("[" + [status, source, volume, name, "{}"].joined(separator: ",") + "]")
+            }
+            switch path {
+            case "settings:/kef/host/speakerStatus": return .json("[\(status)]")
+            case "settings:/kef/play/physicalSource": return .json("[\(source)]")
+            case "player:volume": return .json("[\(volume)]")
+            case "settings:/deviceName": return .json("[\(name)]")
+            case "settings:/releasetext": return .json(#"[{"string_":"LSXII_V30137"}]"#)
+            default: throw URLError(.badURL)
+            }
+        }
+
+        let snapshot = try await api.getSnapshot()
+
+        XCTAssertEqual(snapshot.model, "LSXII")
+        XCTAssertEqual(recorder.requests.count, 6)
+    }
+
+    func testWriteProtocolFollowsModelRefreshedBySnapshot() async throws {
+        let (api, recorder) = makeAPI { request in
+            if request.queryValue("path") == "settings:/releasetext" {
+                return .json(#"[{"string_":"LS50W_4.0"}]"#)
+            }
+            if request.queryValue("path")?.contains(",") == true {
+                return .json(#"[{"kefSpeakerStatus":"powerOn"},{"kefPhysicalSource":"wifi"},{"i32_":25},{"string_":"Living Room"},{"string_":"LSXII_V30137"}]"#)
+            }
+            return .json("true")
+        }
+
+        try await api.setVolume(25)
+        _ = try await api.getSnapshot()
+        try await api.setVolume(26)
+
+        XCTAssertEqual(recorder.requests.filter { $0.url.path == "/api/setData" }.map(\.method), ["GET", "POST"])
+    }
+
+    func testPlayerStateTreatsBlankMetadataAsUnavailable() async throws {
+        let (api, _) = makeAPI { _ in
+            .json(#"[{"state":"playing","trackRoles":{"title":"  \n ","mediaData":{"metaData":{"artist":"\t","album":""}}}}]"#)
+        }
+
+        let state = try await api.getPlayerState()
+
+        XCTAssertTrue(state.isPlaying)
+        XCTAssertEqual(state.nowPlaying, NowPlayingInfo())
+        XCTAssertFalse(state.nowPlaying.hasInfo)
+    }
+
+    func testPlayerStateTrimsMetadataWithoutLosingContent() async throws {
+        let (api, _) = makeAPI { _ in
+            .json(#"[{"state":"paused","trackRoles":{"title":"  Song title  ","mediaData":{"metaData":{"artist":" Artist\n","album":"\tAlbum "}}}}]"#)
+        }
+
+        let state = try await api.getPlayerState()
+
+        XCTAssertFalse(state.isPlaying)
+        XCTAssertEqual(state.nowPlaying, NowPlayingInfo(title: "Song title", artist: "Artist", album: "Album"))
+    }
+
     func testSetDataAcceptsBooleanAcknowledgementForLSXII() async throws {
         let (api, recorder) = makeAPI { request in
             switch request.url.path {

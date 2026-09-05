@@ -28,12 +28,19 @@ struct SavedSpeaker: Codable, Equatable, Identifiable, Sendable {
     }
 
     func accepts(_ snapshot: SpeakerSnapshot) -> Bool {
-        guard requiresReconfirmation != true, !model.isEmpty else { return false }
-        return name.trimmingCharacters(in: .whitespacesAndNewlines) == snapshot.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        requiresReconfirmation != true && hasSameIdentity(as: snapshot)
+    }
+
+    fileprivate func hasSameIdentity(as snapshot: SpeakerSnapshot) -> Bool {
+        !model.isEmpty && displayName == Self.normalizedName(snapshot.name)
             && model == snapshot.model
     }
 
     var displayName: String {
+        Self.normalizedName(name)
+    }
+
+    fileprivate static func normalizedName(_ name: String) -> String {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "KEF Speaker" : trimmed
     }
@@ -47,9 +54,16 @@ final class SpeakerRecordStore: @unchecked Sendable {
 
     private let defaults: UserDefaults
     private let lock = NSLock()
+    private let reloadWidgets: @Sendable () -> Void
 
-    init(defaults: UserDefaults = .standard) {
+    init(
+        defaults: UserDefaults = .standard,
+        reloadWidgets: @escaping @Sendable () -> Void = {
+            WidgetCenter.shared.reloadTimelines(ofKind: AmpestraWidgetConstants.controlsKind)
+        }
+    ) {
         self.defaults = defaults
+        self.reloadWidgets = reloadWidgets
     }
 
     func allSpeakers() -> [SavedSpeaker] {
@@ -87,13 +101,22 @@ final class SpeakerRecordStore: @unchecked Sendable {
         guard let host = ManualHostValidator.normalizedHost(rawHost) else { return nil }
         let macAddress = Self.normalizedMACAddress(rawMACAddress)
 
-        return lock.withLock {
+        let saved = lock.withLock {
             var records = loadRecordsLocked()
-            let existingIndex = records.firstIndex { record in
-                if let macAddress, record.macAddress == macAddress { return true }
-                if let macAddress, let previousMAC = record.macAddress, macAddress != previousMAC { return false }
-                return record.host == host && (record.model.isEmpty || record.accepts(snapshot))
+            let exactMACIndex = macAddress.flatMap { macAddress in
+                records.firstIndex { $0.macAddress == macAddress }
             }
+            let compatibleHostIndices = records.indices.filter { index in
+                let record = records[index]
+                if let macAddress, let previousMAC = record.macAddress, macAddress != previousMAC { return false }
+                return record.host == host && (record.model.isEmpty || record.hasSameIdentity(as: snapshot))
+            }
+            let activeHostIndex = compatibleHostIndices.first { records[$0].requiresReconfirmation != true }
+            // Prefer a known MAC, then the active record at this address. Only
+            // restore an old identity without a MAC when the match is unique;
+            // address reuse can leave several indistinguishable tombstones.
+            let existingIndex = exactMACIndex ?? activeHostIndex
+                ?? (compatibleHostIndices.count == 1 ? compatibleHostIndices.first : nil)
 
             // Keep old Shortcuts IDs, but prevent them following an address
             // explicitly confirmed as belonging to another speaker.
@@ -101,7 +124,7 @@ final class SpeakerRecordStore: @unchecked Sendable {
                 records[index].requiresReconfirmation = true
             }
 
-            let speakerName = Self.normalizedSpeakerName(snapshot.name)
+            let speakerName = SavedSpeaker.normalizedName(snapshot.name)
             let audibleVolume = snapshot.volume > 0
                 ? VolumePolicy.clampedVolume(snapshot.volume)
                 : existingIndex.flatMap { records[$0].lastAudibleVolume }
@@ -145,6 +168,8 @@ final class SpeakerRecordStore: @unchecked Sendable {
             }
             return records.first { $0.id == record.id }
         }
+        reloadWidgets()
+        return saved
     }
 
     func markReachable(
@@ -160,7 +185,7 @@ final class SpeakerRecordStore: @unchecked Sendable {
 
             var record = records[index]
             guard record.host == host, record.accepts(snapshot) else { return }
-            record.name = Self.normalizedSpeakerName(snapshot.name)
+            record.name = SavedSpeaker.normalizedName(snapshot.name)
             record.model = snapshot.model
             record.host = host
             record.alternateHosts = []
@@ -179,7 +204,9 @@ final class SpeakerRecordStore: @unchecked Sendable {
         lock.withLock {
             var records = loadRecordsLocked()
             guard let index = records.firstIndex(where: { $0.id == id }) else { return }
-            records[index].lastAudibleVolume = VolumePolicy.clampedVolume(volume)
+            let volume = VolumePolicy.clampedVolume(volume)
+            guard records[index].lastAudibleVolume != volume else { return }
+            records[index].lastAudibleVolume = volume
             persistLocked(records)
         }
     }
@@ -191,6 +218,7 @@ final class SpeakerRecordStore: @unchecked Sendable {
             defaults.removeObject(forKey: SpeakerPreferenceKeys.savedHost)
             defaults.removeObject(forKey: SpeakerPreferenceKeys.savedMACAddress)
         }
+        reloadWidgets()
     }
 
     func updateWidgetReading(id: String, volume: Int, isPoweredOn: Bool, now: Date = Date()) {
@@ -210,14 +238,14 @@ final class SpeakerRecordStore: @unchecked Sendable {
             return true
         }
         if shouldReload {
-            WidgetCenter.shared.reloadTimelines(ofKind: AmpestraWidgetConstants.controlsKind)
+            reloadWidgets()
         }
     }
 
     func remove(id: String) {
-        lock.withLock {
+        let removed = lock.withLock {
             var records = loadRecordsLocked()
-            guard records.contains(where: { $0.id == id }) else { return }
+            guard records.contains(where: { $0.id == id }) else { return false }
             records.removeAll { $0.id == id }
             persistLocked(records)
             if defaults.string(forKey: SpeakerPreferenceKeys.defaultSpeakerID) == id {
@@ -227,18 +255,21 @@ final class SpeakerRecordStore: @unchecked Sendable {
                     defaults.removeObject(forKey: SpeakerPreferenceKeys.defaultSpeakerID)
                 }
             }
+            return true
         }
+        if removed { reloadWidgets() }
     }
 
     @discardableResult
     func setDefaultSpeaker(id: String) -> Bool {
-        let changed = lock.withLock {
-            guard loadRecordsLocked().contains(where: { $0.id == id }) else { return false }
+        let result = lock.withLock { () -> (found: Bool, changed: Bool) in
+            guard loadRecordsLocked().contains(where: { $0.id == id }) else { return (false, false) }
+            guard defaults.string(forKey: SpeakerPreferenceKeys.defaultSpeakerID) != id else { return (true, false) }
             defaults.set(id, forKey: SpeakerPreferenceKeys.defaultSpeakerID)
-            return true
+            return (true, true)
         }
-        if changed { WidgetCenter.shared.reloadTimelines(ofKind: AmpestraWidgetConstants.controlsKind) }
-        return changed
+        if result.changed { reloadWidgets() }
+        return result.found
     }
 
     func volumePreferences(for id: String) -> SpeakerVolumePreferences {
@@ -248,11 +279,13 @@ final class SpeakerRecordStore: @unchecked Sendable {
     func updateVolumePreferences(_ preferences: SpeakerVolumePreferences, for id: String) {
         lock.withLock {
             var records = loadRecordsLocked()
-            guard let index = records.firstIndex(where: { $0.id == id }) else { return }
+            guard let index = records.firstIndex(where: { $0.id == id }),
+                  (records[index].volumePreferences ?? SpeakerVolumePreferences()) != preferences else { return }
             records[index].volumePreferences = preferences
             persistLocked(records)
         }
-        WidgetCenter.shared.reloadTimelines(ofKind: AmpestraWidgetConstants.controlsKind)
+        // Widgets do not render presets or the ceiling. Their actions read
+        // current preferences at execution, so editing a name needs no reload.
     }
 
     func prefersSnappedVolumeSteps() -> Bool {
@@ -300,11 +333,6 @@ final class SpeakerRecordStore: @unchecked Sendable {
     private func persistLocked(_ records: [SavedSpeaker]) {
         guard let data = try? JSONEncoder().encode(records) else { return }
         defaults.set(data, forKey: SpeakerPreferenceKeys.savedSpeakers)
-    }
-
-    private static func normalizedSpeakerName(_ name: String) -> String {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "KEF Speaker" : trimmed
     }
 
     private static func normalizedMACAddress(_ rawValue: String?) -> String? {

@@ -98,13 +98,25 @@ final class AppIntentMetadataTests: XCTestCase {
         add(screenshot)
     }
 
+    @MainActor
     func testSiriHelpExplainsReadyToUseCommands() {
         let app = XCUIApplication()
-        app.launchArguments = ["--demo-mode", "--demo-show-settings"]
+        app.launchArguments = ["--demo-mode", "--demo-show-settings",
+                               "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL"]
+        XCUIDevice.shared.orientation = .portrait
         app.launch()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
 
         let helpLink = app.buttons["How to use Siri"]
-        XCTAssertTrue(helpLink.waitForExistence(timeout: 3))
+        // Form creates rows lazily; the Siri section can start below the viewport.
+        for _ in 0..<10 {
+            if helpLink.exists, helpLink.isHittable { break }
+            app.swipeUp()
+        }
+        guard helpLink.exists, helpLink.isHittable else {
+            XCTFail("Siri help must be reachable by scrolling Settings")
+            return
+        }
         helpLink.tap()
 
         XCTAssertTrue(app.navigationBars["Siri & Shortcuts"].waitForExistence(timeout: 2))

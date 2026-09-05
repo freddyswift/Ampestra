@@ -155,6 +155,7 @@ final class AppStateVolumePreferenceTests: XCTestCase {
         state.currentHost = speaker.host
         state.isConnected = true
         state.status = .powerOn
+        state.source = .analog
         state.setVolumeHUDSuppressed(true)
         return (state, speaker)
     }

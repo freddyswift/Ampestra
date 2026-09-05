@@ -8,11 +8,11 @@ struct AdvancedConnectionOptionsSection: View {
     @State private var testResult: TestResult?
     @State private var manualHostTestTask: Task<Void, Never>?
     @State private var manualHostTestGeneration = 0
+    @State private var testedHost: String?
     @FocusState private var isManualHostFocused: Bool
 
     private enum TestResult {
         case testing
-        case success(String)
         case failure(String)
     }
 
@@ -45,6 +45,14 @@ struct AdvancedConnectionOptionsSection: View {
         }
         .onDisappear {
             cancelManualHostTest()
+            testResult = nil
+            testedHost = nil
+        }
+        .onChange(of: ipField) { _, _ in
+            guard let testedHost, manualHostInput != testedHost else { return }
+            cancelManualHostTest()
+            testResult = nil
+            self.testedHost = nil
         }
     }
 
@@ -99,12 +107,19 @@ struct AdvancedConnectionOptionsSection: View {
                 Text(manualIPActionTitle)
             }
             .controlSize(.small)
-            .disabled(manualHostInput.isEmpty)
+            .disabled(manualHostInput.isEmpty || isTestingHost || appState.isBusy)
         }
     }
 
     private var manualIPActionTitle: String {
-        isManualIPCurrentConnection ? "Disconnect" : "Connect"
+        if isTestingHost { return "Testing…" }
+        if appState.isReconnecting, appState.currentHost == manualHostInput { return "Connecting…" }
+        return isManualIPCurrentConnection ? "Disconnect" : "Connect"
+    }
+
+    private var isTestingHost: Bool {
+        if case .testing = testResult { return true }
+        return false
     }
 
     private var isManualIPCurrentConnection: Bool {
@@ -112,15 +127,13 @@ struct AdvancedConnectionOptionsSection: View {
             return false
         }
 
-        return ipField.trimmingCharacters(in: .whitespacesAndNewlines) == currentHost
+        return ManualHostValidator.normalizedHost(manualHostInput) == currentHost
     }
 
     private func manualIPAction() {
         if isManualIPCurrentConnection {
             cancelManualHostTest()
             appState.disconnect()
-            appState.manualIP = ""
-            ipField = ""
             testResult = nil
             isManualHostFocused = false
         } else {
@@ -137,13 +150,18 @@ struct AdvancedConnectionOptionsSection: View {
                     ProgressView()
                         .controlSize(.small)
                 }
-            case .success(let name):
-                StatusRow(title: "Connected", detail: name, systemImage: "checkmark.circle.fill", tint: .green)
             case .failure(let message):
                 StatusRow(title: "Couldn’t connect", detail: message, systemImage: "xmark.circle.fill", tint: .red)
             }
-        } else if isSavedManualHostConnected {
+        } else if isSavedManualHostConnected, manualHostInput == savedManualHost {
             StatusRow(title: "Connected", detail: savedManualHost, systemImage: "checkmark.circle.fill", tint: .green)
+        } else if appState.isReconnecting, appState.currentHost == manualHostInput {
+            StatusRow(title: "Connecting", detail: manualHostInput, systemImage: "hifispeaker", tint: .secondary) {
+                ProgressView()
+                    .controlSize(.small)
+            }
+        } else if !savedManualHost.isEmpty, manualHostInput == savedManualHost, let error = appState.connectionError {
+            StatusRow(title: "Couldn’t connect", detail: error, systemImage: "xmark.circle.fill", tint: .red)
         } else if !manualHostInput.isEmpty, manualHostInput != savedManualHost {
             Text("Connect to test and save this host.")
                 .font(.caption)
@@ -190,8 +208,9 @@ struct AdvancedConnectionOptionsSection: View {
 
     private func applyIP() {
         let host = ipField.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !host.isEmpty else { return }
+        guard !host.isEmpty, !isTestingHost, !appState.isBusy else { return }
         cancelManualHostTest()
+        testedHost = host
 
         guard let normalizedHost = ManualHostValidator.normalizedHost(host) else {
             testResult = .failure("Enter a private local IP address or .local host.")
@@ -199,6 +218,7 @@ struct AdvancedConnectionOptionsSection: View {
         }
 
         ipField = normalizedHost
+        testedHost = normalizedHost
 
         testResult = .testing
         let api = KEFSpeakerAPI(host: normalizedHost)
@@ -212,15 +232,12 @@ struct AdvancedConnectionOptionsSection: View {
                   ipField == normalizedHost else {
                 return
             }
+            manualHostTestTask = nil
 
             if ok {
-                let name = (try? await api.getSpeakerName()) ?? normalizedHost
-                guard !Task.isCancelled,
-                      generation == manualHostTestGeneration,
-                      ipField == normalizedHost else {
-                    return
-                }
-                testResult = .success(name)
+                // Reachability is not a completed connection. Let AppState's
+                // actual connection status drive the result shown below.
+                testResult = nil
                 appState.manualIP = normalizedHost
                 appState.connect(to: normalizedHost)
             } else {

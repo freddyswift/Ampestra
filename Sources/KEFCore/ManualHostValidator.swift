@@ -29,12 +29,7 @@ public enum ManualHostValidator {
     }
 
     public static func normalizedDiscoveryHost(_ host: String) -> String? {
-        guard let normalized = normalizedHost(host),
-              !isLoopbackIPv4Address(normalized) else {
-            return nil
-        }
-
-        return normalized
+        normalizedHost(host)
     }
 
     private static func isPrivateIPv4Address(_ host: String) -> Bool {
@@ -56,25 +51,6 @@ public enum ManualHostValidator {
             return true
         default:
             return false
-        }
-    }
-
-    private static func isLoopbackIPv4Address(_ host: String) -> Bool {
-        let parts = host.split(separator: ".", omittingEmptySubsequences: false)
-        guard parts.count == 4,
-              let firstOctet = Int(parts[0]),
-              firstOctet == 127 else {
-            return false
-        }
-
-        return parts.allSatisfy { part in
-            guard !part.isEmpty,
-                  part.allSatisfy(\.isNumber),
-                  let value = Int(part) else {
-                return false
-            }
-
-            return 0...255 ~= value
         }
     }
 

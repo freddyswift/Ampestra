@@ -19,6 +19,7 @@ struct MenuBarPlaybackSection: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 28, height: 28)
                         .background(PanelColors.rowFill, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .accessibilityHidden(true)
 
                     metadata(nowPlaying)
                 }
@@ -61,10 +62,10 @@ struct MenuBarPlaybackSection: View {
 
     private func metadata(_ info: NowPlayingInfo) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(info.title ?? "Current Track")
+            Text(info.title?.nilIfEmpty ?? "Current Track")
                 .font(.callout.weight(.medium))
                 .lineLimit(1)
-                .help(info.title ?? "Current Track")
+                .help(info.title?.nilIfEmpty ?? "Current Track")
 
             if let detail = metadataDetail(info) {
                 Text(detail)

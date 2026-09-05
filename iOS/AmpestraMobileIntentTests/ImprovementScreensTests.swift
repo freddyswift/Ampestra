@@ -2,6 +2,37 @@ import XCTest
 
 @MainActor
 final class ImprovementScreensTests: XCTestCase {
+    func testChangingSpeakerCanRepeatedlyPresentAndDismissTheConnectionSheet() {
+        let app = launchFixture()
+        for attempt in 0..<3 {
+            if attempt > 0 {
+                tapReachable(app.buttons["Settings"], in: app)
+                XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 3))
+            }
+            tapReachable(app.buttons["Change speaker"], in: app)
+            let connection = app.navigationBars["Connect speaker"]
+            XCTAssertTrue(connection.waitForExistence(timeout: 3))
+            connection.buttons["Done"].tap()
+            XCTAssertTrue(connection.waitForNonExistence(timeout: 3))
+            XCTAssertTrue(app.scrollViews["remote-controls-scroll"].waitForExistence(timeout: 3))
+        }
+    }
+
+    func testPresetApplicationIsDisabledInStandbyWhileEditingRemainsAvailable() {
+        let app = launchFixture(extraArguments: ["--demo-standby"])
+        tapReachable(app.buttons["Volume limit & presets"], in: app)
+        XCTAssertTrue(app.navigationBars["Volume & Presets"].waitForExistence(timeout: 3))
+        let apply = app.buttons["Apply Quiet"]
+        reveal(apply, in: app)
+        XCTAssertTrue(apply.exists)
+        XCTAssertFalse(apply.isEnabled)
+        let add = app.buttons["Add preset"]
+        reveal(add, in: app)
+        XCTAssertTrue(add.isHittable)
+        XCTAssertTrue(add.isEnabled)
+        XCTAssertTrue(app.staticTexts["Connect to the speaker and power it on to apply presets. You can still edit them here. Swipe to delete a preset."].exists)
+    }
+
     func testSavedSpeakerSwitchAndDefaultAreReachableWithAccessibilityText() {
         let app = launchFixture()
         tapReachable(app.buttons["Change speaker"], in: app)
@@ -84,10 +115,10 @@ final class ImprovementScreensTests: XCTestCase {
         XCTAssertTrue(app.buttons["Share diagnostic report"].isHittable)
     }
 
-    private func launchFixture() -> XCUIApplication {
+    private func launchFixture(extraArguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--demo-mode", "--demo-saved-speakers", "--demo-show-settings",
-                               "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+                               "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"] + extraArguments
         app.launch()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
         return app

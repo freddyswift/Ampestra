@@ -57,18 +57,37 @@ final class MediaKeyController {
         self.onMuteToggle = onMuteToggle
     }
 
+    deinit {
+        // The run loop retains the source, while the event callback stores an
+        // unretained controller pointer. Remove that callback before its owner
+        // can disappear, even if the caller never explicitly invalidated it.
+        if let runLoopSource {
+            CFRunLoopSourceInvalidate(runLoopSource)
+        }
+        if let eventTap {
+            CFMachPortInvalidate(eventTap)
+        }
+    }
+
     func activate() -> ActivationResult {
         guard Self.hasAccessibilityAccess else {
             invalidate()
             return .missingAccessibility
         }
 
+        if let eventTap, !CFMachPortIsValid(eventTap) {
+            invalidate()
+        }
+
         if eventTap == nil {
             installEventTap()
         }
 
-        if eventTap != nil {
-            return .working
+        if let eventTap {
+            CGEvent.tapEnable(tap: eventTap, enable: true)
+            if CGEvent.tapIsEnabled(tap: eventTap) {
+                return .working
+            }
         }
 
         return .failed
@@ -111,7 +130,10 @@ final class MediaKeyController {
             return
         }
 
-        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
+        guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0) else {
+            CFMachPortInvalidate(eventTap)
+            return
+        }
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: eventTap, enable: true)
 

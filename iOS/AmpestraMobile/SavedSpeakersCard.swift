@@ -4,23 +4,27 @@ import SwiftUI
 struct SavedSpeakersCard: View {
     @ObservedObject var store: RemoteStore
     let discoveredSpeakers: [DiscoveredSpeaker]
+    let connect: (SavedSpeaker) -> Void
 
     var body: some View {
-        if !store.savedSpeakers.isEmpty {
+        let speakers = store.savedSpeakers
+        let defaultSpeakerID = store.defaultSpeakerID
+        let nearbyHosts = Set(discoveredSpeakers.map(\.host))
+        if !speakers.isEmpty {
             VStack(alignment: .leading, spacing: 16) {
                 SectionLabel(title: "Saved speakers")
                 Text("Switch speakers even when they don’t appear in a scan.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                ForEach(store.savedSpeakers) { speaker in
+                ForEach(speakers) { speaker in
                     SavedSpeakerRow(
                         speaker: speaker,
                         isSelected: store.currentSpeakerID == speaker.id,
                         isConnected: store.currentSpeakerID == speaker.id && store.connectionState == .connected,
-                        isDefault: store.defaultSpeakerID == speaker.id,
-                        isNearby: discoveredSpeakers.contains { $0.host == speaker.host },
+                        isDefault: defaultSpeakerID == speaker.id,
+                        isNearby: nearbyHosts.contains(speaker.host),
                         isWorking: store.connectionState == .connecting,
-                        connect: { store.connect(to: speaker) },
+                        connect: { connect(speaker) },
                         makeDefault: { store.makeDefaultSpeaker(id: speaker.id) }
                     )
                 }

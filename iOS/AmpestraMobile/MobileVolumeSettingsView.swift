@@ -5,16 +5,19 @@ struct MobileVolumeSettingsView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let speakerID: String
     let records: SpeakerRecordStore
+    let canApplyPreset: Bool
     let onApplyPreset: (VolumePreset) -> Void
     @State private var preferences: SpeakerVolumePreferences
 
     init(
         speakerID: String,
         records: SpeakerRecordStore = .shared,
+        canApplyPreset: Bool,
         onApplyPreset: @escaping (VolumePreset) -> Void
     ) {
         self.speakerID = speakerID
         self.records = records
+        self.canApplyPreset = canApplyPreset
         self.onApplyPreset = onApplyPreset
         _preferences = State(initialValue: records.volumePreferences(for: speakerID))
     }
@@ -72,7 +75,7 @@ struct MobileVolumeSettingsView: View {
                             records.updateVolumePreferences(preferences, for: speakerID)
                             onApplyPreset(preset)
                         }
-                            .disabled(preset.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .disabled(!canApplyPreset || preset.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                     .padding(.vertical, 4)
                 }
@@ -84,7 +87,9 @@ struct MobileVolumeSettingsView: View {
             } header: {
                 Text("Presets")
             } footer: {
-                Text("Preset volumes respect this speaker’s limit. Swipe to delete a preset.")
+                Text(canApplyPreset
+                     ? "Preset volumes respect this speaker’s limit. Swipe to delete a preset."
+                     : "Connect to the speaker and power it on to apply presets. You can still edit them here. Swipe to delete a preset.")
             }
         }
         .navigationTitle("Volume & Presets")

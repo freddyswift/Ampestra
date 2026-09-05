@@ -126,17 +126,6 @@ if [[ "$open_after_build" != true && "$show_logs" == true ]]; then
   exit 2
 fi
 
-if [[ "$open_after_build" == true ]]; then
-  process_names=("$EXECUTABLE_NAME")
-
-  for process_name in "${process_names[@]}"; do
-    if pgrep -x "$process_name" >/dev/null; then
-      killall "$process_name" >/dev/null 2>&1 || true
-    fi
-  done
-  sleep 0.2
-fi
-
 swift_build() {
   if [[ "$CONFIGURATION" == "release" ]]; then
     "$SWIFT" build -c release "$@"
@@ -193,6 +182,12 @@ codesign_app() {
 
 swift_build --product "$PAYLOAD_PRODUCT"
 BIN_DIR="$(swift_build --show-bin-path)"
+
+# A failed build must leave the existing development app running.
+if [[ "$open_after_build" == true ]] && pgrep -x "$EXECUTABLE_NAME" >/dev/null; then
+  killall "$EXECUTABLE_NAME" >/dev/null 2>&1 || true
+  sleep 0.2
+fi
 
 if [[ "$IS_DEV_BUILD" != true && -d "$LEGACY_APP_DIR" ]]; then
   lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"

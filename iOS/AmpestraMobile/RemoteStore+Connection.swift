@@ -1,7 +1,6 @@
 import AppIntents
 import Foundation
 import KEFCore
-import WidgetKit
 
 /// Connection, foreground recovery, and polling share one generation to reject stale results.
 /// All operations remain main-actor isolated with RemoteStore.
@@ -70,10 +69,6 @@ extension RemoteStore {
         currentHost = host
         defaults.set(host, forKey: SpeakerPreferenceKeys.manualHost)
 
-        guard appIsActive else {
-            return
-        }
-
         connectionGeneration += 1
         let generation = connectionGeneration
         connectionTask?.cancel()
@@ -91,11 +86,16 @@ extension RemoteStore {
         discovery.stopDiscovery()
         consecutiveFailures = 0
         lastError = nil
-        connectionState = .connecting
-        let candidate = clientFactory(host)
         let savedIdentity = expectedSpeakerID.flatMap { speakerRecords.speaker(id: $0) }
             ?? speakerRecords.allSpeakers().first { $0.host == host }
         currentSpeakerID = savedIdentity?.id
+        guard appIsActive else {
+            speakerMACAddress = macAddress ?? savedIdentity?.macAddress
+            connectionState = .disconnected
+            return
+        }
+        connectionState = .connecting
+        let candidate = clientFactory(host)
 
         connectionTask = Task { @MainActor [weak self, candidate] in
             guard let self else { return }
@@ -105,8 +105,16 @@ extension RemoteStore {
                       self.appIsActive,
                       self.connectionGeneration == generation else { return }
 
-                if !confirmingIdentity, let savedIdentity, !savedIdentity.accepts(snapshot) {
-                    throw SpeakerCommandError.speakerIdentityChanged
+                if !confirmingIdentity, let savedIdentity {
+                    guard let currentRecord = self.speakerRecords.speaker(id: savedIdentity.id) else {
+                        throw SpeakerCommandError.speakerNotFound
+                    }
+                    guard currentRecord.host == savedIdentity.host,
+                          currentRecord.host == host,
+                          currentRecord.macAddress == savedIdentity.macAddress,
+                          currentRecord.accepts(snapshot) else {
+                        throw SpeakerCommandError.speakerIdentityChanged
+                    }
                 }
                 self.speaker = candidate
                 self.speakerMACAddress = macAddress
@@ -121,7 +129,6 @@ extension RemoteStore {
                     snapshot: snapshot,
                     makeDefault: false
                 )?.id
-                WidgetCenter.shared.reloadTimelines(ofKind: AmpestraWidgetConstants.controlsKind)
                 AmpestraShortcuts.updateAppShortcutParameters()
                 self.beginPolling(using: candidate)
                 self.updateHardwareButtonCapture()
@@ -177,7 +184,6 @@ extension RemoteStore {
             if let forgottenID { speakerRecords.remove(id: forgottenID) }
             manualHost = ""
             defaults.removeObject(forKey: SpeakerPreferenceKeys.manualHost)
-            WidgetCenter.shared.reloadTimelines(ofKind: AmpestraWidgetConstants.controlsKind)
             AmpestraShortcuts.updateAppShortcutParameters()
         }
     }
@@ -244,9 +250,13 @@ extension RemoteStore {
             guard !Task.isCancelled, self.appIsActive,
                   self.connectionGeneration == generation, self.speaker === speaker else { return }
             do {
-                let snapshot = try await speaker.getSnapshot()
+                var snapshot = try await speaker.getSnapshot()
                 guard !Task.isCancelled, self.connectionGeneration == generation,
                       self.speaker === speaker else { return }
+                snapshot = await self.reconcileVolume(in: snapshot)
+                guard !Task.isCancelled, self.connectionGeneration == generation,
+                      self.speaker === speaker else { return }
+                try self.validateCurrentSpeaker(snapshot)
                 self.consecutiveFailures = 0
                 self.updateIfChanged(\.connectionState, .connected)
                 self.updateIfChanged(\.lastError, nil)
@@ -270,6 +280,27 @@ extension RemoteStore {
     func cancelRefresh() {
         refreshTask?.cancel()
         refreshTask = nil
+    }
+
+    /// Polling must uphold the same saved identity checks as foreground commands.
+    func validateCurrentSpeaker(_ snapshot: SpeakerSnapshot) throws {
+        guard let currentSpeakerID, let record = speakerRecords.speaker(id: currentSpeakerID) else {
+            throw SpeakerCommandError.speakerNotFound
+        }
+        guard record.host == currentHost, record.accepts(snapshot) else {
+            throw SpeakerCommandError.speakerIdentityChanged
+        }
+    }
+
+    /// Speaker reads can briefly lag a successful write. Share the command queue's
+    /// short reconciliation window so a late poll cannot undo its confirmation.
+    func reconcileVolume(in snapshot: SpeakerSnapshot) async -> SpeakerSnapshot {
+        guard let currentSpeakerID else { return snapshot }
+        var reconciled = snapshot
+        reconciled.volume = await SpeakerCommandQueue.shared.reconciledVolume(
+            snapshot.volume, speakerID: currentSpeakerID
+        )
+        return reconciled
     }
 
     func refreshPlayerState(

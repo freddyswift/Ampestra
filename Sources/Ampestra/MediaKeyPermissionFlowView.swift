@@ -113,7 +113,7 @@ struct MediaKeyPermissionFlowView: View {
         case .unknown:
             return MediaKeyPermissionStep(
                 title: "Hardware volume keys are off",
-                detail: "Choose Auto or KEF above to enable this optional feature.",
+                detail: "Choose By Source or KEF above to enable this optional feature.",
                 systemImage: "keyboard",
                 tint: .secondary,
                 action: nil

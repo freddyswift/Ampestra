@@ -130,6 +130,7 @@ extension AppState {
         connectionSession.pollingController.stop()
         connectionSession.needsTrailingRefresh = false
         connectionSession.lastPlaybackStateRefresh = nil
+        connectionSession.playbackStateRequestGeneration += 1
         speaker = nil
         updateIfChanged(\.isConnected, false)
         updateIfChanged(\.isReconnecting, false)
@@ -229,7 +230,7 @@ extension AppState {
             }
         }
 
-        guard self.speaker === api else { return false }
+        guard !Task.isCancelled, self.speaker === api else { return false }
         speaker = nil
         updateIfChanged(\.currentHost, nil)
         updateIfChanged(\.isConnected, false)
@@ -294,17 +295,31 @@ extension AppState {
             return
         }
 
-        do {
-            let playerState = try await speaker.getPlayerState()
-            guard self.speaker === speaker else { return }
+        await refreshPlayerState(for: speaker, clearOnFailure: false)
+    }
+
+    /// Full snapshots and the faster routing poll can overlap. Only the latest
+    /// request for the current input may update metadata and media-key routing.
+    func refreshPlayerState(for speaker: KEFSpeakerClient, clearOnFailure: Bool) async {
+        let requestedSource = source
+        connectionSession.playbackStateRequestGeneration += 1
+        let generation = connectionSession.playbackStateRequestGeneration
+        let playerState = try? await speaker.getPlayerState()
+        guard !Task.isCancelled,
+              self.speaker === speaker,
+              generation == connectionSession.playbackStateRequestGeneration,
+              status == .powerOn, source == requestedSource else { return }
+
+        if let playerState {
             applyPlayerState(playerState)
             connectionSession.lastPlaybackStateRefresh = ContinuousClock.now
-        } catch {
-            guard self.speaker === speaker else { return }
+        } else if clearOnFailure {
+            clearPlayerState()
         }
     }
 
     func refresh() async {
+        guard !Task.isCancelled else { return }
         if connectionSession.isRefreshInProgress {
             connectionSession.needsTrailingRefresh = true
             return
@@ -316,7 +331,7 @@ extension AppState {
         repeat {
             connectionSession.needsTrailingRefresh = false
             await performRefresh()
-        } while connectionSession.needsTrailingRefresh
+        } while connectionSession.needsTrailingRefresh && !Task.isCancelled
     }
 
     private func performRefresh() async {
@@ -325,8 +340,14 @@ extension AppState {
         do {
             let snapshot = try await speaker.getSnapshot()
 
-            guard self.speaker === speaker else { return }
+            guard !Task.isCancelled, self.speaker === speaker else { return }
 
+            if source != snapshot.source || (status == .powerOn && snapshot.status != .powerOn) {
+                resetVolumeForInputChange()
+            }
+            if source != snapshot.source || snapshot.status != .powerOn {
+                clearPlayerState()
+            }
             updateIfChanged(\.status, snapshot.status)
             updateIfChanged(\.source, snapshot.source)
             updateIfChanged(\.volume, snapshot.volume)
@@ -337,14 +358,8 @@ extension AppState {
             if snapshot.status == .powerOn,
                snapshot.source.usesPlaybackStateForVolumeRouting,
                !hasFreshPlaybackStateFromRoutingPoll {
-                let playerData = try? await speaker.getPlayerState()
-                guard self.speaker === speaker else { return }
-                if let playerData {
-                    applyPlayerState(playerData)
-                    connectionSession.lastPlaybackStateRefresh = ContinuousClock.now
-                } else {
-                    clearPlayerState()
-                }
+                await refreshPlayerState(for: speaker, clearOnFailure: true)
+                guard !Task.isCancelled, self.speaker === speaker else { return }
             } else if snapshot.status != .powerOn || !snapshot.source.usesPlaybackStateForVolumeRouting {
                 clearPlayerState()
                 connectionSession.lastPlaybackStateRefresh = nil
@@ -353,8 +368,10 @@ extension AppState {
             markConnectionHealthy(for: speaker)
             clearRecoveredNetworkActionError()
         } catch {
-            guard self.speaker === speaker else { return }
-            if await speaker.testConnection() {
+            guard !Task.isCancelled, self.speaker === speaker else { return }
+            let isReachable = await speaker.testConnection()
+            guard !Task.isCancelled, self.speaker === speaker else { return }
+            if isReachable {
                 markConnectionHealthy(for: speaker)
             } else {
                 recordConnectionFailure(for: speaker)
@@ -376,6 +393,8 @@ extension AppState {
     }
 
     private func clearPlayerState() {
+        connectionSession.playbackStateRequestGeneration += 1
+        connectionSession.lastPlaybackStateRefresh = nil
         updateIfChanged(\.isPlaying, false)
         updateIfChanged(\.nowPlaying, nil)
     }
@@ -431,4 +450,5 @@ extension AppState {
         return discovery.speakers
             .compactMap { trustedHostForAutoConnection($0.host) }
             .first
-    }}
+    }
+}

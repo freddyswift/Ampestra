@@ -8,6 +8,7 @@ struct ConnectionView: View {
     @ObservedObject var store: RemoteStore
     @ObservedObject private var discovery: KEFDiscovery
     @FocusState private var manualFieldFocused: Bool
+    @State private var requestedConnection = false
 
     init(store: RemoteStore) {
         self.store = store
@@ -26,7 +27,11 @@ struct ConnectionView: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 18) {
                         ConnectionIntroCard()
-                        SavedSpeakersCard(store: store, discoveredSpeakers: discovery.speakers)
+                        SavedSpeakersCard(
+                            store: store,
+                            discoveredSpeakers: discovery.speakers,
+                            connect: connectToSavedSpeaker
+                        )
 
                         if store.localNetworkPermissionDenied {
                             permissionCard
@@ -61,7 +66,7 @@ struct ConnectionView: View {
         .onAppear(perform: startDiscoveryIfNeeded)
         .onChange(of: store.connectionState, connectionStateChanged)
         .onChange(of: store.currentSpeakerID) { _, _ in
-            if store.connectionState == .connected { dismiss() }
+            dismissAfterRequestedConnection()
         }
         .onDisappear(perform: store.stopDiscovery)
     }
@@ -93,7 +98,7 @@ struct ConnectionView: View {
                     Label("Scan again", systemImage: "arrow.clockwise")
                         .font(.subheadline.weight(.semibold))
                 }
-                .disabled(discovery.isSearching || store.connectionState.isWorking)
+                .disabled(discovery.isSearching || store.connectionState == .connecting)
             }
 
             if let error = discovery.lastError {
@@ -132,12 +137,12 @@ struct ConnectionView: View {
                 )
                 .font(.headline)
                 .frame(maxWidth: .infinity)
-                .frame(height: 48)
+                .frame(minHeight: 48)
             }
             .ampestraGlassButton(prominent: true)
             .buttonBorderShape(.capsule)
             .tint(discovery.isSearching ? AmpestraTheme.surfaceStrong : AmpestraTheme.accent)
-            .disabled(store.connectionState.isWorking)
+            .disabled(store.connectionState == .connecting)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 2)
@@ -162,11 +167,13 @@ struct ConnectionView: View {
                     .submitLabel(.go)
                     .onSubmit(connectManually)
                     .textFieldStyle(.roundedBorder)
-                    .frame(height: 50)
+                    .frame(minHeight: 50)
+                    .accessibilityLabel("Speaker address")
+                    .accessibilityIdentifier("manual-speaker-address")
 
                 Button(action: connectManually) {
                     Group {
-                        if store.connectionState.isWorking {
+                        if store.connectionState == .connecting {
                             ProgressView()
                                 .tint(AmpestraTheme.onAccent)
                         } else {
@@ -179,7 +186,7 @@ struct ConnectionView: View {
                 .ampestraGlassButton(prominent: true)
                 .buttonBorderShape(.circle)
                 .tint(AmpestraTheme.accent)
-                .disabled(!manualHostIsValid || store.connectionState.isWorking)
+                .disabled(!manualHostIsValid || store.connectionState == .connecting)
                 .accessibilityLabel("Connect to manual address")
             }
 
@@ -213,7 +220,7 @@ struct ConnectionView: View {
                 Label("Open Settings", systemImage: "arrow.up.forward.app")
                     .font(.headline)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 48)
+                    .frame(minHeight: 48)
             }
             .ampestraGlassButton(prominent: true)
             .buttonBorderShape(.capsule)
@@ -236,6 +243,7 @@ struct ConnectionView: View {
 
     private func speakerButton(_ speaker: DiscoveredSpeaker) -> some View {
         Button {
+            requestedConnection = true
             store.connect(to: speaker)
         } label: {
             HStack(spacing: 13) {
@@ -272,7 +280,7 @@ struct ConnectionView: View {
             )
         }
         .buttonStyle(.plain)
-        .disabled(store.connectionState.isWorking)
+        .disabled(store.connectionState == .connecting)
     }
 
     private func discoveryButtonTapped() {
@@ -289,9 +297,15 @@ struct ConnectionView: View {
     }
 
     private func connectManually() {
-        guard manualHostIsValid else { return }
+        guard manualHostIsValid, store.connectionState != .connecting else { return }
         manualFieldFocused = false
+        requestedConnection = true
         store.connect(to: store.manualHost)
+    }
+
+    private func connectToSavedSpeaker(_ speaker: SavedSpeaker) {
+        requestedConnection = true
+        store.connect(to: speaker)
     }
 
     private func openAppSettings() {
@@ -303,6 +317,11 @@ struct ConnectionView: View {
         _ oldValue: SpeakerConnectionState,
         _ newValue: SpeakerConnectionState
     ) {
-        if newValue == .connected { dismiss() }
+        dismissAfterRequestedConnection()
+    }
+
+    private func dismissAfterRequestedConnection() {
+        // A background recovery of the current speaker must not close this picker.
+        if requestedConnection, store.connectionState == .connected { dismiss() }
     }
 }

@@ -4,7 +4,9 @@ import SwiftUI
 struct RemoteView: View {
     @ObservedObject var store: RemoteStore
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var presentedSheet: RemoteSheet?
+    @State private var pendingSheet: RemoteSheet?
 
     init(store: RemoteStore) {
         self.store = store
@@ -77,11 +79,10 @@ struct RemoteView: View {
         .background(alignment: .topLeading) {
             volumeCaptureView
         }
-        .sheet(item: $presentedSheet, content: sheetContent)
+        .sheet(item: $presentedSheet, onDismiss: presentPendingSheet, content: sheetContent)
         .onAppear(perform: presentSetupIfNeeded)
-        .onChange(of: store.connectionState, connectionStateChanged)
-        .animation(.easeInOut(duration: 0.2), value: store.lastError)
-        .animation(.easeInOut(duration: 0.2), value: store.notice)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: store.lastError)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: store.notice)
     }
 
     @ViewBuilder
@@ -121,21 +122,19 @@ struct RemoteView: View {
     }
 
     private func beginSpeakerChange() {
+        pendingSheet = .connection
         presentedSheet = nil
-        DispatchQueue.main.async { presentedSheet = .connection }
+    }
+
+    private func presentPendingSheet() {
+        guard let pendingSheet else { return }
+        self.pendingSheet = nil
+        presentedSheet = pendingSheet
     }
 
     private func presentSetupIfNeeded() {
         guard !store.hasConfiguredSpeaker else { return }
         presentedSheet = .connection
-    }
-
-    private func connectionStateChanged(
-        _ oldValue: SpeakerConnectionState,
-        _ newValue: SpeakerConnectionState
-    ) {
-        guard newValue == .connected, presentedSheet == .connection else { return }
-        presentedSheet = nil
     }
 
 }

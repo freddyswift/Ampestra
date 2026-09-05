@@ -10,5 +10,6 @@ final class SpeakerConnectionSession {
     var isRefreshInProgress = false
     var needsTrailingRefresh = false
     var lastPlaybackStateRefresh: ContinuousClock.Instant?
+    var playbackStateRequestGeneration = 0
     var consecutiveRefreshFailures = 0
 }

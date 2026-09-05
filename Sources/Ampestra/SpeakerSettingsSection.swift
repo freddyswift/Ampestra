@@ -67,10 +67,12 @@ struct SpeakerSettingsSection: View {
                 Text(speaker.name)
                     .font(.body)
                     .lineLimit(1)
+                    .help(speaker.name)
                 Text(speaker.host)
                     .font(.caption)
                     .foregroundStyle(PanelColors.secondaryText)
                     .lineLimit(1)
+                    .help(speaker.host)
             }
 
             Spacer(minLength: 8)
@@ -112,10 +114,12 @@ struct SpeakerSettingsSection: View {
                     .accessibilityLabel("Speaker actions")
                 }
             } else {
-                Button("Connect") {
+                Button(isConnecting(to: speaker) ? "Connecting…" : "Connect") {
                     appState.connect(to: speaker.host)
                 }
                 .controlSize(.small)
+                .disabled(appState.isBusy || isConnecting(to: speaker))
+                .accessibilityLabel("Connect to \(speaker.name)")
             }
         }
         .padding(.vertical, 2)
@@ -123,6 +127,10 @@ struct SpeakerSettingsSection: View {
 
     private func isCurrentSpeaker(_ speaker: DiscoveredSpeaker) -> Bool {
         appState.currentHost == speaker.host && appState.isConnected
+    }
+
+    private func isConnecting(to speaker: DiscoveredSpeaker) -> Bool {
+        appState.currentHost == speaker.host && appState.isReconnecting
     }
 
     private func disconnectSpeaker(_ speaker: DiscoveredSpeaker) {
@@ -160,10 +168,6 @@ struct SpeakerSettingsSection: View {
             return
         }
 
-        startDiscoveryFromSettings()
-    }
-
-    private func startDiscoveryFromSettings() {
         appState.scanForSpeakers()
     }
 }

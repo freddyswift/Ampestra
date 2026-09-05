@@ -28,7 +28,8 @@ public struct VolumePolicy: Equatable, Sendable {
 
     public func normalizedVolume(_ volume: Int) -> Int {
         let clampedVolume = Self.clampedVolume(volume)
-        guard usesFixedSteps, clampedStepSize > 1 else { return clampedVolume }
+        guard usesFixedSteps, clampedStepSize > 1,
+              clampedVolume > 0, clampedVolume < 100 else { return clampedVolume }
 
         let roundedVolume = Int((Double(clampedVolume) / Double(clampedStepSize)).rounded()) * clampedStepSize
         return Self.clampedVolume(roundedVolume)
