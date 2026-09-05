@@ -2,6 +2,12 @@ import XCTest
 @testable import KEFCore
 
 final class ManualHostValidatorTests: XCTestCase {
+    func testLeadingZeroIPv4OctetsAreCanonicalizedBeforeUse() {
+        XCTAssertEqual(ManualHostValidator.normalizedHost("010.000.000.002"), "10.0.0.2")
+        XCTAssertEqual(ManualHostValidator.normalizedHost("192.168.001.010"), "192.168.1.10")
+        XCTAssertNil(ManualHostValidator.normalizedHost("0177.0.0.1"))
+    }
+
     func testAcceptsPrivateIPv4Addresses() {
         XCTAssertEqual(ManualHostValidator.normalizedHost(" 192.168.1.40 "), "192.168.1.40")
         XCTAssertEqual(ManualHostValidator.normalizedHost("10.0.0.2"), "10.0.0.2")

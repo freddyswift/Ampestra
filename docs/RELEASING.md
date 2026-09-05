@@ -99,13 +99,15 @@ The default profile name is `Ampestra`.
 
 ## Build A Release
 
-First update both macOS values in `Sources/Ampestra/Info.plist`. For example,
+After approval for the exact version and build, update both macOS values in `Sources/Ampestra/Info.plist`. For example,
 after `1.0.4 (5)`, use `1.0.5 (6)`. Then validate and build from those committed
 values with a clean working tree:
 
 ```sh
-make macos-version-check
-make release
+make check
+./script/release.sh 1.0.5 --build 6 --tag v1.0.5 --notes "## Improvements
+
+- Describe the changes in this release." --no-upload
 ```
 
 The package command writes:
@@ -125,27 +127,29 @@ explicitly built as universal.
 
 ## Upload To GitHub
 
-Let the release script upload with GitHub CLI:
+After approval for the exact release, run `make check` and upload from a clean
+commit with brief Markdown notes:
 
 ```sh
-make release-upload
+./script/release.sh 1.0.5 --build 6 --tag v1.0.5 \
+  --notes "## Improvements
+
+- Describe the changes in this release." --upload
 ```
 
-Uploads require a notary profile and a Developer ID signing identity. If a
-release for the tag already exists, rerun `script/release.sh` with
-`--replace-assets` only when you intentionally want to overwrite its DMG, zip,
-and appcast assets.
+Uploads require a notary profile and a Developer ID signing identity. The
+version and build must match the committed macOS plist, and the tag must be
+`v<version>`. Before packaging, the script checks that any existing local or
+remote tag points to the build commit. Tag lookup errors stop the upload. It
+checks again after packaging and rejects changes to the working tree or HEAD.
 
-Or upload manually:
+Replacing an existing release requires separate explicit permission and
+`--replace-assets`. This updates the DMG, zip, appcast, and GitHub release notes
+with the supplied notes. It does not delete or move the tag.
 
-```sh
-gh release create v1.0.5 \
-  dist/releases/Ampestra-v1.0.5.dmg \
-  dist/releases/Ampestra-v1.0.5.zip \
-  dist/releases/sparkle-appcast.xml \
-  --title "Ampestra v1.0.5" \
-  --notes "Ampestra v1.0.5."
-```
+After upload, verify the tag target, assets, signing/notarization, and the
+appcast version, build, download URL, and release notes as required by
+[AGENTS.md](../AGENTS.md). CI validates changes but does not publish releases.
 
 ## Dry Runs
 

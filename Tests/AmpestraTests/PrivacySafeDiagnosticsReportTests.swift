@@ -12,6 +12,7 @@ final class PrivacySafeDiagnosticsReportTests: XCTestCase {
         appState.manualIP = "192.168.1.40"
         appState.currentHost = "192.168.1.41"
         appState.connectionError = "Cannot reach 192.168.1.41"
+        appState.status = .unknown("Private status from 192.168.1.41")
         appState.speakerName = "Kitchen LSX"
         appState.discovery.speakers = [
             DiscoveredSpeaker(
@@ -38,6 +39,8 @@ final class PrivacySafeDiagnosticsReportTests: XCTestCase {
         XCTAssertFalse(report.contains("Private Song"))
         XCTAssertFalse(report.contains("Private Artist"))
         XCTAssertFalse(report.contains("Private Album"))
+        XCTAssertFalse(report.contains("Private status"))
+        XCTAssertTrue(report.contains("Power status: unknown"))
 
         XCTAssertTrue(report.contains("Manual host configured: true"))
         XCTAssertTrue(report.contains("Current host present: true"))

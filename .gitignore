@@ -26,3 +26,5 @@ tmp-screenshots/
 *.pem
 *.mobileprovision
 *.provisionprofile
+
+__pycache__/

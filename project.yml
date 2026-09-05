@@ -35,6 +35,31 @@ targets:
         CODE_SIGNING_ALLOWED: NO
         GENERATE_INFOPLIST_FILE: YES
 
+  AmpestraWidgets:
+    type: app-extension
+    platform: iOS
+    productName: AmpestraWidgets
+    sources:
+      - path: iOS/AmpestraWidgets
+        excludes:
+          - Info.plist
+          - AmpestraWidgets.entitlements
+      - path: iOS/AmpestraShared
+      - path: iOS/AmpestraMobile/SpeakerPreferences.swift
+      - path: iOS/AmpestraMobile/SavedSpeakerStore.swift
+      - path: iOS/AmpestraMobile/SpeakerCommandService.swift
+    dependencies:
+      - target: KEFCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.freddyswift.ampestra.widgets
+        PRODUCT_NAME: AmpestraWidgets
+        INFOPLIST_FILE: iOS/AmpestraWidgets/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: iOS/AmpestraWidgets/AmpestraWidgets.entitlements
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+
   AmpestraMobile:
     type: application
     platform: iOS
@@ -43,10 +68,14 @@ targets:
       - path: iOS/AmpestraMobile
         excludes:
           - Info.plist
+          - AmpestraMobile.entitlements
+      - path: iOS/AmpestraShared
     resources:
       - path: iOS/AmpestraMobile/Assets.xcassets
     dependencies:
       - target: KEFCore
+      - target: AmpestraWidgets
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.freddyswift.ampestra
@@ -54,6 +83,7 @@ targets:
         PRODUCT_MODULE_NAME: AmpestraMobile
         INFOPLIST_FILE: iOS/AmpestraMobile/Info.plist
         GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: iOS/AmpestraMobile/AmpestraMobile.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SUPPORTS_MACCATALYST: NO
@@ -89,6 +119,7 @@ schemes:
     build:
       targets:
         KEFCore: all
+        AmpestraWidgets: all
         AmpestraMobile: all
         AmpestraMobileTests: [test]
         AmpestraMobileIntentTests: [test]

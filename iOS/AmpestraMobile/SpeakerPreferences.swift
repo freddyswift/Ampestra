@@ -12,4 +12,15 @@ enum SpeakerPreferenceKeys {
     static let hardwareButtonsEnabled = "ios.hardwareButtonsEnabled"
     static let mutePhoneOnExit = "ios.mutePhoneOnExit"
     static let volumeStep = "ios.volumeStep"
+
+    static let allPersistedKeys = [
+        savedSpeakers,
+        defaultSpeakerID,
+        savedHost,
+        savedMACAddress,
+        manualHost,
+        hardwareButtonsEnabled,
+        mutePhoneOnExit,
+        volumeStep,
+    ]
 }

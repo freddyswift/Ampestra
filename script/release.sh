@@ -21,6 +21,8 @@ skip_git_check=false
 assume_defaults=false
 generate_appcast=true
 replace_assets=false
+release_exists=false
+source "$ROOT_DIR/script/release_preflight.sh"
 
 usage() {
   cat <<EOF
@@ -286,11 +288,15 @@ if [[ "$upload_choice" == true && "$generate_appcast" != true ]]; then
   exit 2
 fi
 
+validate_release_metadata
+ensure_clean_git
+release_commit="$(git rev-parse HEAD)"
 if [[ "$upload_choice" == true ]]; then
   ensure_upload_ready
+  command -v gh >/dev/null || { echo "GitHub CLI is required for upload." >&2; exit 4; }
+  verify_release_tag_target
+  check_existing_release
 fi
-
-ensure_clean_git
 
 package_args=(
   --version "$version"
@@ -336,32 +342,28 @@ if [[ "$upload_choice" != true ]]; then
   exit 0
 fi
 
-if ! command -v gh >/dev/null 2>&1; then
-  echo "gh is not installed, so upload cannot continue." >&2
-  echo "Install GitHub CLI or upload these files manually:" >&2
-  echo "  $dmg_path" >&2
-  echo "  $archive_path" >&2
-  echo "  $appcast_path" >&2
-  exit 4
-fi
+# Packaging can take several minutes. Recheck immutable inputs and remote state.
+ensure_clean_git
+[[ "$(git rev-parse HEAD)" == "$release_commit" ]] || {
+  echo "HEAD changed during packaging; upload stopped." >&2; exit 3;
+}
+verify_release_tag_target
+check_existing_release
+notes_file="$(mktemp)"
+trap 'rm -f "$notes_file"' EXIT
+printf '%s\n' "$release_notes" > "$notes_file"
 
-if gh release view "$release_tag" >/dev/null 2>&1; then
-  if [[ "$replace_assets" != true ]]; then
-    echo "GitHub release $release_tag already exists." >&2
-    echo "Pass --replace-assets to overwrite its DMG, zip, and appcast assets." >&2
-    exit 5
-  fi
-
-  gh release delete-asset "$release_tag" "$APPCAST_ASSET_NAME" --yes >/dev/null 2>&1 || true
+if [[ "$release_exists" == true ]]; then
   gh release upload "$release_tag" "$dmg_path" "$archive_path" "$appcast_path" --clobber
+  gh release edit "$release_tag" --notes-file "$notes_file"
 else
   gh release create "$release_tag" \
     "$dmg_path" \
     "$archive_path" \
     "$appcast_path" \
     --title "$APP_DISPLAY_NAME $release_tag" \
-    --notes "$release_notes" \
-    --target "$(git rev-parse HEAD)"
+    --notes-file "$notes_file" \
+    --target "$release_commit"
 fi
 
 echo "Uploaded $release_tag to GitHub Releases."

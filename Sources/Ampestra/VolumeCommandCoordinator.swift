@@ -42,18 +42,21 @@ final class VolumeCommandCoordinator {
 
                 do {
                     try await timing.sleep(timing.volumeCommandCoalescingWindow)
+                    guard !Task.isCancelled, generation == taskGeneration else { return }
 
                     if pendingVolume != nil {
                         continue
                     }
 
                     try await speaker.setVolume(requestedVolume)
+                    guard !Task.isCancelled, generation == taskGeneration else { return }
 
                     if pendingVolume != nil {
                         continue
                     }
 
                     try await timing.sleep(timing.postVolumeRefreshDelay)
+                    guard !Task.isCancelled, generation == taskGeneration else { return }
 
                     if pendingVolume == nil {
                         await didSendLatest(speaker)
@@ -61,6 +64,7 @@ final class VolumeCommandCoordinator {
                 } catch is CancellationError {
                     return
                 } catch {
+                    guard !Task.isCancelled, generation == taskGeneration else { return }
                     if pendingVolume == nil {
                         await didFailLatest(error, speaker)
                     }

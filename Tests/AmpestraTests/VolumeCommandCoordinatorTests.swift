@@ -4,6 +4,32 @@ import XCTest
 
 @MainActor
 final class VolumeCommandCoordinatorTests: XCTestCase {
+    func testCancellationSuppressesLateNetworkFailure() async {
+        let started = expectation(description: "Write started")
+        let finished = expectation(description: "Write returned after cancellation")
+        let staleCallback = expectation(description: "Cancelled command callback")
+        staleCallback.isInverted = true
+        let gate = WriteGate()
+        let speaker = FakeSpeakerClient(host: "speaker.local")
+        speaker.writeOperation = {
+            started.fulfill()
+            await gate.wait()
+            finished.fulfill()
+            throw URLError(.cancelled)
+        }
+        let coordinator = VolumeCommandCoordinator()
+        coordinator.submit(
+            volume: 25, speaker: speaker, timing: .immediate,
+            didSendLatest: { _ in staleCallback.fulfill() },
+            didFailLatest: { _, _ in staleCallback.fulfill() }
+        )
+        await fulfillment(of: [started], timeout: 1)
+        coordinator.cancel()
+        await gate.resume()
+        await fulfillment(of: [finished], timeout: 1)
+        await fulfillment(of: [staleCallback], timeout: 0.1)
+    }
+
     func testCoalescesRapidVolumeRequestsToLatestValue() async {
         let speaker = FakeSpeakerClient(host: "speaker.local")
         let coordinator = VolumeCommandCoordinator()
@@ -176,6 +202,7 @@ private actor TestSleeper {
 private final class FakeSpeakerClient: KEFSpeakerClient, @unchecked Sendable {
     let host: String
     var setVolumes: [Int] = []
+    var writeOperation: (@Sendable () async throws -> Void)?
 
     init(host: String) {
         self.host = host
@@ -198,6 +225,7 @@ private final class FakeSpeakerClient: KEFSpeakerClient, @unchecked Sendable {
         NowPlayingInfo(title: nil, artist: nil, album: nil)
     }
     func setVolume(_ volume: Int) async throws {
+        try await writeOperation?()
         setVolumes.append(volume)
     }
     func setSource(_ source: SpeakerSource) async throws {}
@@ -207,4 +235,20 @@ private final class FakeSpeakerClient: KEFSpeakerClient, @unchecked Sendable {
     func nextTrack() async throws {}
     func previousTrack() async throws {}
     func testConnection() async -> Bool { true }
+}
+
+private actor WriteGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var resumed = false
+
+    func wait() async {
+        if resumed { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func resume() {
+        resumed = true
+        continuation?.resume()
+        continuation = nil
+    }
 }

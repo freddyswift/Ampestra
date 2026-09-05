@@ -10,9 +10,17 @@ struct SavedSpeaker: Codable, Equatable, Identifiable, Sendable {
     var macAddress: String?
     var lastSeenAt: Date
     var lastAudibleVolume: Int?
+    var requiresReconfirmation: Bool? = nil
 
     var connectionHosts: [String] {
-        [host] + alternateHosts.filter { $0 != host }
+        // Historical DHCP addresses are not proof of speaker identity.
+        ManualHostValidator.normalizedHost(host).map { [$0] } ?? []
+    }
+
+    func accepts(_ snapshot: SpeakerSnapshot) -> Bool {
+        guard requiresReconfirmation != true, !model.isEmpty else { return false }
+        return name.trimmingCharacters(in: .whitespacesAndNewlines) == snapshot.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            && model == snapshot.model
     }
 
     var displayName: String {
@@ -25,7 +33,7 @@ struct SavedSpeaker: Codable, Equatable, Identifiable, Sendable {
 /// Speaker IDs are generated once and remain stable even if DHCP changes the
 /// address that the speaker uses.
 final class SpeakerRecordStore: @unchecked Sendable {
-    static let shared = SpeakerRecordStore()
+    static let shared = SpeakerRecordStore(defaults: AmpestraSharedDefaults.shared)
 
     private let defaults: UserDefaults
     private let lock = NSLock()
@@ -73,7 +81,14 @@ final class SpeakerRecordStore: @unchecked Sendable {
             var records = loadRecordsLocked()
             let existingIndex = records.firstIndex { record in
                 if let macAddress, record.macAddress == macAddress { return true }
-                return record.connectionHosts.contains(host)
+                if let macAddress, let previousMAC = record.macAddress, macAddress != previousMAC { return false }
+                return record.host == host && (record.model.isEmpty || record.accepts(snapshot))
+            }
+
+            // Keep old Shortcuts IDs, but prevent them following an address
+            // explicitly confirmed as belonging to another speaker.
+            for index in records.indices where index != existingIndex && records[index].host == host {
+                records[index].requiresReconfirmation = true
             }
 
             let speakerName = Self.normalizedSpeakerName(snapshot.name)
@@ -84,11 +99,11 @@ final class SpeakerRecordStore: @unchecked Sendable {
             let record: SavedSpeaker
             if let existingIndex {
                 var existing = records[existingIndex]
-                let previousHosts = existing.connectionHosts.filter { $0 != host }
                 existing.name = speakerName
                 existing.model = snapshot.model
                 existing.host = host
-                existing.alternateHosts = Array(previousHosts.prefix(3))
+                existing.alternateHosts = []
+                existing.requiresReconfirmation = false
                 existing.macAddress = macAddress ?? existing.macAddress
                 existing.lastSeenAt = Date()
                 existing.lastAudibleVolume = audibleVolume
@@ -128,11 +143,11 @@ final class SpeakerRecordStore: @unchecked Sendable {
             guard let index = records.firstIndex(where: { $0.id == id }) else { return }
 
             var record = records[index]
-            let previousHosts = record.connectionHosts.filter { $0 != host }
+            guard record.host == host, record.accepts(snapshot) else { return }
             record.name = Self.normalizedSpeakerName(snapshot.name)
             record.model = snapshot.model
             record.host = host
-            record.alternateHosts = Array(previousHosts.prefix(3))
+            record.alternateHosts = []
             record.lastSeenAt = Date()
             if snapshot.volume > 0 {
                 record.lastAudibleVolume = VolumePolicy.clampedVolume(snapshot.volume)
@@ -167,6 +182,22 @@ final class SpeakerRecordStore: @unchecked Sendable {
             defaults.removeObject(forKey: SpeakerPreferenceKeys.defaultSpeakerID)
             defaults.removeObject(forKey: SpeakerPreferenceKeys.savedHost)
             defaults.removeObject(forKey: SpeakerPreferenceKeys.savedMACAddress)
+        }
+    }
+
+    func remove(id: String) {
+        lock.withLock {
+            var records = loadRecordsLocked()
+            guard records.contains(where: { $0.id == id }) else { return }
+            records.removeAll { $0.id == id }
+            persistLocked(records)
+            if defaults.string(forKey: SpeakerPreferenceKeys.defaultSpeakerID) == id {
+                if let replacement = records.first {
+                    defaults.set(replacement.id, forKey: SpeakerPreferenceKeys.defaultSpeakerID)
+                } else {
+                    defaults.removeObject(forKey: SpeakerPreferenceKeys.defaultSpeakerID)
+                }
+            }
         }
     }
 

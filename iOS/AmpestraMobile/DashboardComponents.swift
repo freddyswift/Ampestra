@@ -2,6 +2,7 @@ import KEFCore
 import SwiftUI
 
 struct VolumeControlCard: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ObservedObject var store: RemoteStore
     let compact: Bool
     @State private var previousSliderVolume: Int?
@@ -78,7 +79,10 @@ struct VolumeControlCard: View {
     }
 
     private var volumeButtonsContent: some View {
-        HStack(spacing: compact ? 10 : 12) {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 12))
+            : AnyLayout(HStackLayout(spacing: compact ? 10 : 12))
+        return layout {
             volumeButton(systemName: "minus", label: "Volume down") {
                 store.adjustVolume(direction: -1)
             }
@@ -92,7 +96,8 @@ struct VolumeControlCard: View {
                     systemImage: store.isMuted ? "speaker.wave.2.fill" : "speaker.slash.fill"
                 )
                 .font(.subheadline.weight(.semibold))
-                .frame(width: compact ? 104 : 124, height: controlDiameter)
+                .frame(minWidth: compact ? 104 : 124, minHeight: controlDiameter)
+                .fixedSize(horizontal: false, vertical: true)
             }
             .ampestraGlassButton(prominent: true)
             .buttonBorderShape(.capsule)
@@ -452,16 +457,32 @@ struct StandbyControlCard: View {
 
 struct SpeakerActionsRow: View {
     @ObservedObject var store: RemoteStore
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let compact: Bool
+    @State private var isShowingSourcePicker = false
 
     var body: some View {
         GlassEffectContainer(spacing: compact ? 8 : 10) {
             actionTiles
         }
+        .sheet(isPresented: $isShowingSourcePicker) {
+            NavigationStack {
+                List { sourceOptions }
+                    .navigationTitle("Source")
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { isShowingSourcePicker = false }
+                        }
+                    }
+            }
+        }
     }
 
     private var actionTiles: some View {
-        HStack(spacing: compact ? 8 : 10) {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 10))
+            : AnyLayout(HStackLayout(spacing: compact ? 8 : 10))
+        return layout {
             Button {
                 RemoteHaptics.controlImpact()
                 store.togglePower()
@@ -480,34 +501,52 @@ struct SpeakerActionsRow: View {
             .tint(.primary)
             .disabled(store.connectionState != .connected || store.isSendingCommand)
 
-            Menu {
-                ForEach(SpeakerSource.inputSources) { source in
-                    Button {
-                        guard source != store.source else { return }
-                        RemoteHaptics.selection()
-                        store.setSource(source)
-                    } label: {
-                        Label(source.displayName, systemImage: source.systemImage)
-                        if source == store.source { Image(systemName: "checkmark") }
-                    }
-                }
-            } label: {
-                ControlTileLabel(
-                    icon: store.source.systemImage,
-                    title: "Source",
-                    value: store.source.displayName,
-                    compact: compact,
-                    showsMenuIndicator: true
-                )
-            }
+            sourceControl
             .ampestraGlassButton()
             .buttonBorderShape(.capsule)
             .frame(maxWidth: .infinity)
             .tint(.primary)
             .disabled(!store.canControlSpeaker || store.isSendingCommand)
             .accessibilityLabel("Source, \(store.source.displayName)")
+            .accessibilityIdentifier("speaker-source-control")
         }
     }
+
+    @ViewBuilder
+    private var sourceControl: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            Button { isShowingSourcePicker = true } label: { sourceLabel }
+        } else {
+            Menu { sourceOptions } label: { sourceLabel }
+        }
+    }
+
+    private var sourceLabel: some View {
+        ControlTileLabel(
+            icon: store.source.systemImage,
+            title: "Source",
+            value: store.source.displayName,
+            compact: compact,
+            showsMenuIndicator: true
+        )
+    }
+
+    private var sourceOptions: some View {
+        ForEach(SpeakerSource.inputSources) { source in
+            Button {
+                if source != store.source {
+                    RemoteHaptics.selection()
+                    store.setSource(source)
+                }
+                isShowingSourcePicker = false
+            } label: {
+                Label(source.displayName, systemImage: source.systemImage)
+                if source == store.source { Image(systemName: "checkmark") }
+            }
+            .accessibilityLabel(source.displayName)
+        }
+    }
+
 }
 
 private struct ControlTileLabel: View {
@@ -518,20 +557,16 @@ private struct ControlTileLabel: View {
     let showsMenuIndicator: Bool
 
     var body: some View {
-        ZStack {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: compact ? 17 : 18, weight: .semibold))
+                .foregroundStyle(AmpestraTheme.accentBright)
+                .frame(width: sideSlotWidth)
+                .accessibilityHidden(true)
+
             labels
-
-            HStack(spacing: 0) {
-                Image(systemName: icon)
-                    .font(.system(size: compact ? 17 : 18, weight: .semibold))
-                    .foregroundStyle(AmpestraTheme.accentBright)
-                    .frame(width: sideSlotWidth)
-                    .accessibilityHidden(true)
-
-                Spacer(minLength: 0)
-
-                menuIndicator
-            }
+                .frame(maxWidth: .infinity)
+            menuIndicator
         }
         .padding(.horizontal, compact ? 8 : 10)
         .frame(maxWidth: .infinity, minHeight: compact ? 40 : 44, alignment: .center)
@@ -546,7 +581,7 @@ private struct ControlTileLabel: View {
             Text(value)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.primary)
-                .lineLimit(1)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

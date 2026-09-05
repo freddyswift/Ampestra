@@ -24,8 +24,23 @@ public final class KEFDiscovery: ObservableObject {
     private var discoveredMACs: [String: String] = [:]
     private var scheduledHTTPServices: Set<ServiceResolutionID> = []
     private var discoveryGeneration = 0
+    nonisolated static let maximumServices = 64
+    private let resolutionQueue: OperationQueue
+    private let resolve: @Sendable (String, String, String, @escaping @Sendable () -> Bool) -> String?
 
-    public init() {}
+    public convenience init() {
+        self.init { name, type, domain, cancelled in
+            Self.resolveServiceHostname(name: name, type: type, domain: domain, isCancelled: cancelled)
+        }
+    }
+
+    init(resolve: @escaping @Sendable (String, String, String, @escaping @Sendable () -> Bool) -> String?) {
+        self.resolve = resolve
+        resolutionQueue = OperationQueue()
+        resolutionQueue.name = "com.freddyswift.ampestra.discovery-resolution"
+        resolutionQueue.maxConcurrentOperationCount = 4
+        resolutionQueue.qualityOfService = .utility
+    }
 
     public func startDiscovery() {
         stopDiscovery()
@@ -48,9 +63,12 @@ public final class KEFDiscovery: ObservableObject {
         // by normalized speaker name when both are visible.
         raopBrowser = NWBrowser(for: .bonjour(type: "_raop._tcp", domain: nil), using: params)
         raopBrowser?.browseResultsChangedHandler = { [weak self] results, _ in
+            var matchingServices = 0
             for result in results {
                 guard case .service(let name, _, _, _) = result.endpoint,
                       let parsedService = Self.parseRAOPServiceName(name) else { continue }
+                guard matchingServices < Self.maximumServices else { break }
+                matchingServices += 1
 
                 Task { @MainActor in
                     self?.recordMAC(
@@ -70,9 +88,12 @@ public final class KEFDiscovery: ObservableObject {
 
         httpBrowser = NWBrowser(for: .bonjour(type: "_http._tcp", domain: nil), using: params)
         httpBrowser?.browseResultsChangedHandler = { [weak self] results, _ in
+            var matchingServices = 0
             for result in results {
                 guard case .service(let name, let type, let domain, _) = result.endpoint,
                       Self.isLikelyKEFSpeakerService(name) else { continue }
+                guard matchingServices < Self.maximumServices else { break }
+                matchingServices += 1
 
                 Task { @MainActor in
                     self?.scheduleServiceResolution(
@@ -110,6 +131,7 @@ public final class KEFDiscovery: ObservableObject {
     }
 
     private func stopCurrentDiscovery() {
+        resolutionQueue.cancelAllOperations()
         stopTask?.cancel()
         stopTask = nil
         httpBrowser?.cancel()
@@ -123,6 +145,7 @@ public final class KEFDiscovery: ObservableObject {
         guard generation == discoveryGeneration else { return }
 
         let normalizedName = Self.normalizedServiceName(speakerName)
+        guard discoveredMACs.count < Self.maximumServices || discoveredMACs[normalizedName] != nil else { return }
         guard discoveredMACs[normalizedName] != macAddress else { return }
         discoveredMACs[normalizedName] = macAddress
 
@@ -191,22 +214,25 @@ public final class KEFDiscovery: ObservableObject {
     /// Resolve a Bonjour service to its `.local` hostname using dns_sd APIs.
     /// URLSession then applies the system's normal IPv4/IPv6 resolution and
     /// interface selection instead of discovery forcing an IPv4 address.
-    private func scheduleServiceResolution(name: String, type: String, domain: String, generation: Int) {
+    func scheduleServiceResolution(name: String, type: String, domain: String, generation: Int) {
         guard generation == discoveryGeneration else { return }
 
         let id = ServiceResolutionID(name: name, type: type, domain: domain)
+        guard scheduledHTTPServices.count < Self.maximumServices else { return }
         guard scheduledHTTPServices.insert(id).inserted else { return }
 
-        let resolutionTask = Task.detached(priority: .utility) { () -> String? in
-            Self.resolveServiceHostname(name: name, type: type, domain: domain)
+        let operation = BlockOperation()
+        let resolve = resolve
+        operation.addExecutionBlock { [weak self, weak operation] in
+            guard let operation, !operation.isCancelled else { return }
+            let host = resolve(name, type, domain, { operation.isCancelled })
+            guard !operation.isCancelled, let host else { return }
+            Task { @MainActor [weak self] in
+                guard let self, self.discoveryGeneration == generation else { return }
+                self.addSpeaker(name: name, host: host)
+            }
         }
-
-        Task { @MainActor [weak self] in
-            guard let host = await resolutionTask.value,
-                  let self,
-                  self.discoveryGeneration == generation else { return }
-            self.addSpeaker(name: name, host: host)
-        }
+        resolutionQueue.addOperation(operation)
     }
 
     public nonisolated static func isLikelyKEFSpeakerService(_ name: String) -> Bool {
@@ -253,7 +279,11 @@ public final class KEFDiscovery: ObservableObject {
     }
 
     /// Use DNSServiceResolve to get the .local hostname for a Bonjour service.
-    nonisolated static func resolveServiceHostname(name: String, type: String, domain: String) -> String? {
+    nonisolated static func resolveServiceHostname(
+        name: String, type: String, domain: String,
+        isCancelled: @Sendable () -> Bool = { false }
+    ) -> String? {
+        guard !isCancelled() else { return nil }
         class Box { var value: String? }
         let box = Box()
         var sdRef: DNSServiceRef?
@@ -276,13 +306,21 @@ public final class KEFDiscovery: ObservableObject {
         guard err == kDNSServiceErr_NoError, let sdRef else { return nil }
         defer { DNSServiceRefDeallocate(sdRef) }
 
-        // Wait for the resolve callback (up to 5 seconds)
+        // Poll briefly so stopping discovery also stops in-flight DNS work.
         let fd = DNSServiceRefSockFD(sdRef)
+        guard fd >= 0 else { return nil }
         var pfd = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
-        if poll(&pfd, 1, 5000) > 0 {
-            DNSServiceProcessResult(sdRef)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !isCancelled(), ContinuousClock.now < deadline {
+            let result = poll(&pfd, 1, 100)
+            if result > 0 {
+                guard pfd.revents & Int16(POLLIN) != 0, !isCancelled() else { return nil }
+                DNSServiceProcessResult(sdRef)
+                break
+            }
+            if result < 0, errno != EINTR { return nil }
         }
-
+        guard !isCancelled() else { return nil }
         return box.value.map(normalizedHostname)
     }
 

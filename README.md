@@ -1,6 +1,5 @@
 # Ampestra
 
-[![CI](https://github.com/freddyswift/Ampestra/actions/workflows/ci.yml/badge.svg)](https://github.com/freddyswift/Ampestra/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/freddyswift/Ampestra)](https://github.com/freddyswift/Ampestra/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -53,6 +52,10 @@ make ios-project
 ```
 
 Simulator build and test shortcuts are `make ios-build` and `make ios-test`.
+Run `make check-all` to validate both macOS and iOS. The iOS commands require
+Xcode 27; use `SDK=27` when it is installed as `/Applications/Xcode-beta.app`.
+Override `IOS_TEST_DESTINATION` to test another installed simulator, for example
+`make ios-test SDK=27 IOS_TEST_DESTINATION='platform=iOS Simulator,name=iPad mini (A17 Pro),OS=27.0'`.
 Maintainers can create a signed App Store archive with `make ios-archive`; the
 separate `make ios-upload` command archives and uploads it to App Store Connect.
 
@@ -68,8 +71,9 @@ Open the DMG, then drag `Ampestra.app` into `Applications`.
 ## Compatibility
 
 The iPhone app supports iOS 27 or later. The menu bar app supports macOS 14 or
-later. CI builds and tests the macOS app on the oldest supported macOS runner
-and on the current macOS 26 release environment. If you use macOS 14 or 15,
+later. [CI](.github/workflows/ci.yml) runs macOS checks and the iOS simulator
+suite on pushes to `main` and pull requests. Run `make check` for local macOS
+validation. If you use macOS 14 or 15,
 please report any launch, permissions, networking, or UI issues.
 
 Ampestra works with KEF speakers that expose the local HTTP control API:

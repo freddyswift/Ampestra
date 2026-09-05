@@ -46,4 +46,18 @@ final class AppStateSecurityTests: XCTestCase {
         defaults.removeObject(forKey: "trustedSpeakerHosts")
         defaults.removeObject(forKey: "useAutoDiscovery")
     }
+
+    func testWakeAddressBelongsToSelectedSpeakerOnly() {
+        let appState = AppState(startImmediately: false)
+        appState.currentHost = "selected.local"
+        appState.discovery.speakers = [
+            DiscoveredSpeaker(id: "other", name: "Other", host: "other.local", macAddress: "AA:BB:CC:DD:EE:FF")
+        ]
+        XCTAssertNil(appState.speakerMAC)
+
+        appState.discovery.speakers.append(
+            DiscoveredSpeaker(id: "selected", name: "Selected", host: "selected.local", macAddress: "11:22:33:44:55:66")
+        )
+        XCTAssertEqual(appState.speakerMAC, "11:22:33:44:55:66")
+    }
 }

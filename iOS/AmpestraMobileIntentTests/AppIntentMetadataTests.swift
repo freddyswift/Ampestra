@@ -49,6 +49,55 @@ final class AppIntentMetadataTests: XCTestCase {
         XCTAssertEqual(status.identifier, "GetSpeakerStatusIntent")
     }
 
+    func testWidgetControlIntentsAreExportedByHostApp() {
+        let definitions = IntentDefinitions(bundleIdentifier: bundleIdentifier)
+
+        for identifier in [
+            "LowerSpeakerVolumeWidgetIntent",
+            "RaiseSpeakerVolumeWidgetIntent",
+            "MuteSpeakerWidgetIntent",
+        ] {
+            let intent = definitions.intents[identifier]
+            XCTAssertEqual(intent.bundleIdentifier, bundleIdentifier)
+            XCTAssertEqual(intent.identifier, identifier)
+        }
+    }
+
+    @MainActor
+    func testRemoteControlsRemainReachableInLandscapeWithLargeTextAndError() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo-mode", "--demo-error",
+                               "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        defer { XCUIDevice.shared.orientation = .portrait }
+        app.launch()
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let landscape = NSPredicate { _, _ in
+            app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height
+        }
+        _ = expectation(for: landscape, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        let scroll = app.scrollViews["remote-controls-scroll"]
+        XCTAssertTrue(scroll.waitForExistence(timeout: 5))
+        let source = app.buttons["speaker-source-control"]
+        for _ in 0..<12 {
+            if source.isHittable { break }
+            scroll.swipeUp()
+        }
+        XCTAssertTrue(source.isHittable, "Source control must be reachable by scrolling")
+        source.tap()
+        XCTAssertTrue(app.buttons["TV"].waitForExistence(timeout: 2))
+        app.buttons["TV"].tap()
+        let selectedTV = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Source, TV"), object: source
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [selectedTV], timeout: 3), .completed)
+        XCTAssertTrue(app.buttons["TV"].waitForNonExistence(timeout: 3))
+        let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screenshot.name = "Accessible landscape remote"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
     func testSiriHelpExplainsReadyToUseCommands() {
         let app = XCUIApplication()
         app.launchArguments = ["--demo-mode", "--demo-show-settings"]

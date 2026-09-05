@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: make check
+
+  ios:
+    # iOS 27 requires the preview toolchain image, not the macos-26 default.
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: brew install xcodegen
+      - run: make ios-test
+      - name: Verify iPad accessibility controls
+        run: >-
+          xcodebuild -project Ampestra.xcodeproj -scheme "Ampestra iOS"
+          -destination 'platform=iOS Simulator,name=iPad mini (A17 Pro),OS=27.0'
+          -only-testing:AmpestraMobileIntentTests/AppIntentMetadataTests/testRemoteControlsRemainReachableInLandscapeWithLargeTextAndError
+          test CODE_SIGNING_ALLOWED=NO
+      - name: Check generated project is current
+        run: git diff --exit-code -- Ampestra.xcodeproj

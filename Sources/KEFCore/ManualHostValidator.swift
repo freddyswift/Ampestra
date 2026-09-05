@@ -16,7 +16,12 @@ public enum ManualHostValidator {
         guard normalized.rangeOfCharacter(from: blockedCharacters) == nil else { return nil }
 
         let lowercased = normalized.lowercased()
-        if isPrivateIPv4Address(lowercased) || isLocalHostname(lowercased) {
+        if isPrivateIPv4Address(lowercased) {
+            // Emit decimal octets so leading zeroes cannot be interpreted as
+            // octal by a URL parser or resolver after validation.
+            return lowercased.split(separator: ".").compactMap { Int($0) }.map(String.init).joined(separator: ".")
+        }
+        if isLocalHostname(lowercased) {
             return lowercased
         }
 

@@ -1,4 +1,5 @@
 import Foundation
+import KEFCore
 
 @MainActor
 enum PrivacySafeDiagnosticsReport {
@@ -29,7 +30,7 @@ enum PrivacySafeDiagnosticsReport {
             "Discovered speaker count: \(appState.discovery.speakers.count)",
             "",
             "Speaker State",
-            "Power status: \(appState.status.rawValue)",
+            "Power status: \(diagnosticStatus(appState.status))",
             "Source: \(appState.source.rawValue)",
             "Playing: \(appState.isPlaying)",
             "",
@@ -45,6 +46,11 @@ enum PrivacySafeDiagnosticsReport {
             "Update configuration: \(updateController.configurationState)",
             "Can check for updates: \(updateController.canCheckForUpdates)",
         ].joined(separator: "\n")
+    }
+
+    private static func diagnosticStatus(_ status: KEFCore.SpeakerStatus) -> String {
+        if case .unknown = status { return "unknown" }
+        return status.rawValue
     }
 
     private static let iso8601Formatter: ISO8601DateFormatter = {

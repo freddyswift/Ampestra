@@ -13,20 +13,30 @@
 		149A468DCFAA888384A51E68 /* KEFCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 0E72489372120B720B412E43 /* KEFCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		1798CF11D706835A6769973C /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5364BDCC50F3309F1CC563B /* ConnectionView.swift */; };
 		2329DDE6159C058DD3E74B84 /* MobileSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5F43D749384EA517EA229E5 /* MobileSettingsView.swift */; };
+		2706FDB07F9C0ABFEB87BFDC /* AmpestraSharedDefaults.swift in Sources */ = {isa = PBXBuildFile; fileRef = 855BBF1C99A64EFD716FC39B /* AmpestraSharedDefaults.swift */; };
+		27F3D623A50AA89563440D0B /* SavedSpeakerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3B55187793804A45C3BE2BB /* SavedSpeakerStore.swift */; };
+		2BF4CD742F5CC5C19D160F54 /* KEFCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0E72489372120B720B412E43 /* KEFCore.framework */; };
+		2CBF058A53AD4427EE0B327A /* SpeakerCommandQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F2439271C95AF77E3E92B9 /* SpeakerCommandQueue.swift */; };
 		2E84639EF66C417DDF32D336 /* AppIntentMetadataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 029D3EAB4AD253940942F451 /* AppIntentMetadataTests.swift */; };
 		3125FB13A4218DE02B5851C0 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 820A42FFE47B44DC05046542 /* PrivacyInfo.xcprivacy */; };
 		35164F183FDC1D7E1615D488 /* VolumePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF4B7FDAB797B7F9425F5488 /* VolumePolicy.swift */; };
 		357C47DEA15EDAE8E720D3FA /* ManualHostValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C6D486AF9337C780480C779 /* ManualHostValidator.swift */; };
 		55229DA3071EDA63F8AA7F95 /* RemoteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 765E75417F77A6BC30A45FF2 /* RemoteView.swift */; };
+		56F77FBFCAA2362F63B6C8BD /* SpeakerCommandQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F2439271C95AF77E3E92B9 /* SpeakerCommandQueue.swift */; };
 		5C8DFD843FAC62DB734A49C4 /* KEFCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 0E72489372120B720B412E43 /* KEFCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		5DE079DF47077FF24D3EDD80 /* DashboardOverviewComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DD60648BF7EB3F38B8CD384 /* DashboardOverviewComponents.swift */; };
+		608D23E6DB4FC6E030BA8E84 /* AmpestraWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D565026FE42E7273B723E317 /* AmpestraWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		6301999EC74E25349FB37F37 /* KEFSpeakerAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 431F4E5BF00CE5207AA98D51 /* KEFSpeakerAPI.swift */; };
 		67C28F97837B63BD13812BDA /* KEFCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0E72489372120B720B412E43 /* KEFCore.framework */; };
+		70DFFA2F99181ABF3B4A2283 /* SpeakerCommandService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE59CEC7AC550DB955B3C906 /* SpeakerCommandService.swift */; };
 		7D6A51F059AA280705C947E4 /* RemoteSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47AA12540673F101FD5D8791 /* RemoteSupport.swift */; };
+		7DC956A141303FE036C4AB4A /* SpeakerPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6F6E42D05DDE9FDA949A05D /* SpeakerPreferences.swift */; };
 		8B4A2CA4FC8D1D3F2DC4BDB7 /* SpeakerEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = F39149BBD64FAD170E858D71 /* SpeakerEntity.swift */; };
 		8BBFD7E84C24098D532C1402 /* SavedSpeakerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3B55187793804A45C3BE2BB /* SavedSpeakerStore.swift */; };
+		8CB3B28C260F2CAF6653623A /* WidgetSpeakerIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27E5B3223210AB1988C5A66D /* WidgetSpeakerIntents.swift */; };
 		8FFB2BDC3708CD214AEEC261 /* DashboardComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 006D6205B063C65C53B54164 /* DashboardComponents.swift */; };
 		966792F5108E11FD0359916C /* RemoteComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80AE7F2CD097AB14F96EB674 /* RemoteComponents.swift */; };
+		B831D932E56851CE04CFBFFB /* WidgetSpeakerIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27E5B3223210AB1988C5A66D /* WidgetSpeakerIntents.swift */; };
 		BD065058CF3DFDE828016FA4 /* KEFCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0E72489372120B720B412E43 /* KEFCore.framework */; };
 		C3A15D3DA57EDD100E81519E /* SpeakerPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6F6E42D05DDE9FDA949A05D /* SpeakerPreferences.swift */; };
 		C4457893E4E686E00552A281 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2EAFC92D5EFC4A7993FBA98B /* Assets.xcassets */; };
@@ -38,9 +48,18 @@
 		E5B8AE79AF8D04F8B52D8F39 /* SpeakerModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EF55F9D184AE019B0D2B2F5 /* SpeakerModels.swift */; };
 		EA3B462EF3586F9CE17C0FEB /* WakeOnLAN.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DC8FDE6D4882107D30E1FD5 /* WakeOnLAN.swift */; };
 		F7EE5358EF8F21CAC7696EC6 /* SpeakerCommandService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE59CEC7AC550DB955B3C906 /* SpeakerCommandService.swift */; };
+		FCABDB93B7B171B6CF614102 /* AmpestraControlsWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8D47DA268E72DC3BA4CF185 /* AmpestraControlsWidget.swift */; };
+		FDD8674D4C9FE6B4187A96BE /* AmpestraSharedDefaults.swift in Sources */ = {isa = PBXBuildFile; fileRef = 855BBF1C99A64EFD716FC39B /* AmpestraSharedDefaults.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		00C4A0B6CFA68D31836E6ACC /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1E8107DB7B8B94943CD4A990 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F9F46C6176B1E77D3A082755;
+			remoteInfo = KEFCore;
+		};
 		03336608A0444E85912348B6 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 1E8107DB7B8B94943CD4A990 /* Project object */;
@@ -54,6 +73,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 13727CCE9548D3442015C16D;
 			remoteInfo = AmpestraMobile;
+		};
+		5FECA15E902EBFCA3CDD0A62 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1E8107DB7B8B94943CD4A990 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 957242B7B35D7EF93D2BCB02;
+			remoteInfo = AmpestraWidgets;
 		};
 		72CAA6D55B9590EDCED2BC1C /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -94,6 +120,17 @@
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C7957CFC4CCD798D3F54957D /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				608D23E6DB4FC6E030BA8E84 /* AmpestraWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
@@ -103,6 +140,7 @@
 		096CF648E44FCF5ECA67EAEE /* SpeakerIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerIntents.swift; sourceTree = "<group>"; };
 		0E72489372120B720B412E43 /* KEFCore.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = KEFCore.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		2540205E8EC7531E46DB8ECB /* Ampestra.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Ampestra.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		27E5B3223210AB1988C5A66D /* WidgetSpeakerIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSpeakerIntents.swift; sourceTree = "<group>"; };
 		2DD60648BF7EB3F38B8CD384 /* DashboardOverviewComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardOverviewComponents.swift; sourceTree = "<group>"; };
 		2EAFC92D5EFC4A7993FBA98B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		3C045766989176CC3E3CCC9F /* AmpestraMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmpestraMobileApp.swift; sourceTree = "<group>"; };
@@ -117,15 +155,19 @@
 		7C6D486AF9337C780480C779 /* ManualHostValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualHostValidator.swift; sourceTree = "<group>"; };
 		80AE7F2CD097AB14F96EB674 /* RemoteComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteComponents.swift; sourceTree = "<group>"; };
 		820A42FFE47B44DC05046542 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		855BBF1C99A64EFD716FC39B /* AmpestraSharedDefaults.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmpestraSharedDefaults.swift; sourceTree = "<group>"; };
 		87448EEE0397F7F00F260B30 /* KEFDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KEFDiscovery.swift; sourceTree = "<group>"; };
 		87D82D76FD2389C5FD26F489 /* AmpestraMobileIntentTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AmpestraMobileIntentTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		9EF55F9D184AE019B0D2B2F5 /* SpeakerModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerModels.swift; sourceTree = "<group>"; };
 		BE59CEC7AC550DB955B3C906 /* SpeakerCommandService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerCommandService.swift; sourceTree = "<group>"; };
+		C1F2439271C95AF77E3E92B9 /* SpeakerCommandQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerCommandQueue.swift; sourceTree = "<group>"; };
 		C5364BDCC50F3309F1CC563B /* ConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionView.swift; sourceTree = "<group>"; };
 		C6F6E42D05DDE9FDA949A05D /* SpeakerPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerPreferences.swift; sourceTree = "<group>"; };
 		CA29EF749FCE435255F0B2F5 /* ConnectionComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionComponents.swift; sourceTree = "<group>"; };
 		CF4B7FDAB797B7F9425F5488 /* VolumePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumePolicy.swift; sourceTree = "<group>"; };
 		D3B55187793804A45C3BE2BB /* SavedSpeakerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedSpeakerStore.swift; sourceTree = "<group>"; };
+		D565026FE42E7273B723E317 /* AmpestraWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = AmpestraWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		D8D47DA268E72DC3BA4CF185 /* AmpestraControlsWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmpestraControlsWidget.swift; sourceTree = "<group>"; };
 		F39149BBD64FAD170E858D71 /* SpeakerEntity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerEntity.swift; sourceTree = "<group>"; };
 		F5F43D749384EA517EA229E5 /* MobileSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSettingsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -147,6 +189,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B95934DD3F5194B3526104E7 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2BF4CD742F5CC5C19D160F54 /* KEFCore.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -164,6 +214,7 @@
 				2540205E8EC7531E46DB8ECB /* Ampestra.app */,
 				87D82D76FD2389C5FD26F489 /* AmpestraMobileIntentTests.xctest */,
 				6C78F9688EC626207B2252C3 /* AmpestraMobileTests.xctest */,
+				D565026FE42E7273B723E317 /* AmpestraWidgets.appex */,
 				0E72489372120B720B412E43 /* KEFCore.framework */,
 			);
 			name = Products;
@@ -176,6 +227,14 @@
 				79878C1828A092B257E5D4A7 /* Sources */,
 				1B184AC1FD2E94C99F857B2D /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		6BA52C6C6616182688D3EBD0 /* AmpestraWidgets */ = {
+			isa = PBXGroup;
+			children = (
+				D8D47DA268E72DC3BA4CF185 /* AmpestraControlsWidget.swift */,
+			);
+			path = AmpestraWidgets;
 			sourceTree = "<group>";
 		};
 		73A41AE3D9A04908D504D38E /* KEFCore */ = {
@@ -233,12 +292,24 @@
 			path = AmpestraMobileIntentTests;
 			sourceTree = "<group>";
 		};
+		BFC6A98170F75C4699507004 /* AmpestraShared */ = {
+			isa = PBXGroup;
+			children = (
+				855BBF1C99A64EFD716FC39B /* AmpestraSharedDefaults.swift */,
+				C1F2439271C95AF77E3E92B9 /* SpeakerCommandQueue.swift */,
+				27E5B3223210AB1988C5A66D /* WidgetSpeakerIntents.swift */,
+			);
+			path = AmpestraShared;
+			sourceTree = "<group>";
+		};
 		C73B435F25F7FBB7A0EDB04C /* iOS */ = {
 			isa = PBXGroup;
 			children = (
 				9E85B9B89E63C9E445DF1B8D /* AmpestraMobile */,
 				ABFDBC7C7388BE2820557EF1 /* AmpestraMobileIntentTests */,
 				15EEDEE771E5816C2004E442 /* AmpestraMobileTests */,
+				BFC6A98170F75C4699507004 /* AmpestraShared */,
+				6BA52C6C6616182688D3EBD0 /* AmpestraWidgets */,
 			);
 			path = iOS;
 			sourceTree = "<group>";
@@ -253,12 +324,14 @@
 				0A59C523DCC19446946353B2 /* Sources */,
 				42F943CD1EA38346E41F861F /* Resources */,
 				6820C690C1F1B2D8B88897BE /* Frameworks */,
+				C7957CFC4CCD798D3F54957D /* Embed Foundation Extensions */,
 				10984872643B2A7391984922 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				0FD202EF80CEE149610CF5E4 /* PBXTargetDependency */,
+				EFEC5B6E7E477C6701E807CE /* PBXTargetDependency */,
 			);
 			name = AmpestraMobile;
 			packageProductDependencies = (
@@ -287,6 +360,25 @@
 			productName = AmpestraMobileTests;
 			productReference = 6C78F9688EC626207B2252C3 /* AmpestraMobileTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		957242B7B35D7EF93D2BCB02 /* AmpestraWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 54B879359B8D9056E481D527 /* Build configuration list for PBXNativeTarget "AmpestraWidgets" */;
+			buildPhases = (
+				D3248232583344D743CEB8FD /* Sources */,
+				B95934DD3F5194B3526104E7 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				44527C5D763A1ABC74F3267B /* PBXTargetDependency */,
+			);
+			name = AmpestraWidgets;
+			packageProductDependencies = (
+			);
+			productName = AmpestraWidgets;
+			productReference = D565026FE42E7273B723E317 /* AmpestraWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 		9C00C3F0E7D5F939DD38B968 /* AmpestraMobileIntentTests */ = {
 			isa = PBXNativeTarget;
@@ -340,6 +432,10 @@
 						DevelopmentTeam = 3VNW72P883;
 						ProvisioningStyle = Automatic;
 					};
+					957242B7B35D7EF93D2BCB02 = {
+						DevelopmentTeam = 3VNW72P883;
+						ProvisioningStyle = Automatic;
+					};
 					9C00C3F0E7D5F939DD38B968 = {
 						DevelopmentTeam = 3VNW72P883;
 						ProvisioningStyle = Automatic;
@@ -366,6 +462,7 @@
 			projectRoot = "";
 			targets = (
 				F9F46C6176B1E77D3A082755 /* KEFCore */,
+				957242B7B35D7EF93D2BCB02 /* AmpestraWidgets */,
 				13727CCE9548D3442015C16D /* AmpestraMobile */,
 				415E47F8DD57D9C62331F93D /* AmpestraMobileTests */,
 				9C00C3F0E7D5F939DD38B968 /* AmpestraMobileIntentTests */,
@@ -391,6 +488,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C58356953B8AC0CCC80CD1AE /* AmpestraMobileApp.swift in Sources */,
+				2706FDB07F9C0ABFEB87BFDC /* AmpestraSharedDefaults.swift in Sources */,
 				D86C6921FCC5DF7736B4E0B0 /* ConnectionComponents.swift in Sources */,
 				1798CF11D706835A6769973C /* ConnectionView.swift in Sources */,
 				8FFB2BDC3708CD214AEEC261 /* DashboardComponents.swift in Sources */,
@@ -402,10 +500,12 @@
 				7D6A51F059AA280705C947E4 /* RemoteSupport.swift in Sources */,
 				55229DA3071EDA63F8AA7F95 /* RemoteView.swift in Sources */,
 				8BBFD7E84C24098D532C1402 /* SavedSpeakerStore.swift in Sources */,
+				2CBF058A53AD4427EE0B327A /* SpeakerCommandQueue.swift in Sources */,
 				F7EE5358EF8F21CAC7696EC6 /* SpeakerCommandService.swift in Sources */,
 				8B4A2CA4FC8D1D3F2DC4BDB7 /* SpeakerEntity.swift in Sources */,
 				E51B33E42C2531F0CA840F99 /* SpeakerIntents.swift in Sources */,
 				C3A15D3DA57EDD100E81519E /* SpeakerPreferences.swift in Sources */,
+				B831D932E56851CE04CFBFFB /* WidgetSpeakerIntents.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -439,6 +539,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D3248232583344D743CEB8FD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FCABDB93B7B171B6CF614102 /* AmpestraControlsWidget.swift in Sources */,
+				FDD8674D4C9FE6B4187A96BE /* AmpestraSharedDefaults.swift in Sources */,
+				27F3D623A50AA89563440D0B /* SavedSpeakerStore.swift in Sources */,
+				56F77FBFCAA2362F63B6C8BD /* SpeakerCommandQueue.swift in Sources */,
+				70DFFA2F99181ABF3B4A2283 /* SpeakerCommandService.swift in Sources */,
+				7DC956A141303FE036C4AB4A /* SpeakerPreferences.swift in Sources */,
+				8CB3B28C260F2CAF6653623A /* WidgetSpeakerIntents.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -452,6 +566,11 @@
 			target = 13727CCE9548D3442015C16D /* AmpestraMobile */;
 			targetProxy = 03336608A0444E85912348B6 /* PBXContainerItemProxy */;
 		};
+		44527C5D763A1ABC74F3267B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F9F46C6176B1E77D3A082755 /* KEFCore */;
+			targetProxy = 00C4A0B6CFA68D31836E6ACC /* PBXContainerItemProxy */;
+		};
 		588D093B6DF805B822C74DD9 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 13727CCE9548D3442015C16D /* AmpestraMobile */;
@@ -462,6 +581,11 @@
 			target = F9F46C6176B1E77D3A082755 /* KEFCore */;
 			targetProxy = 72CAA6D55B9590EDCED2BC1C /* PBXContainerItemProxy */;
 		};
+		EFEC5B6E7E477C6701E807CE /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 957242B7B35D7EF93D2BCB02 /* AmpestraWidgets */;
+			targetProxy = 5FECA15E902EBFCA3CDD0A62 /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -470,6 +594,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = iOS/AmpestraMobile/AmpestraMobile.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = iOS/AmpestraMobile/Info.plist;
@@ -643,11 +768,32 @@
 			};
 			name = Debug;
 		};
+		90B49FD9142D70DCC12876F8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = iOS/AmpestraWidgets/AmpestraWidgets.entitlements;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = iOS/AmpestraWidgets/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.freddyswift.ampestra.widgets;
+				PRODUCT_NAME = AmpestraWidgets;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		C4386B391364F8DACC0333FC /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = iOS/AmpestraMobile/AmpestraMobile.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = iOS/AmpestraMobile/Info.plist;
@@ -664,6 +810,26 @@
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
+		};
+		C4FF83B4E8043981DDA1AEAF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = iOS/AmpestraWidgets/AmpestraWidgets.entitlements;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = iOS/AmpestraWidgets/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.freddyswift.ampestra.widgets;
+				PRODUCT_NAME = AmpestraWidgets;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
 		};
 		D72BF0698DE92544609AF210 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -768,6 +934,15 @@
 			buildConfigurations = (
 				820ED0E17458C4A3E3FFF174 /* Debug */,
 				2146F39F0A1127CF2C692A3F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		54B879359B8D9056E481D527 /* Build configuration list for PBXNativeTarget "AmpestraWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C4FF83B4E8043981DDA1AEAF /* Debug */,
+				90B49FD9142D70DCC12876F8 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

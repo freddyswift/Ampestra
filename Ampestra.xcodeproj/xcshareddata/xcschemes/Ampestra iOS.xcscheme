@@ -57,6 +57,20 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
+               BlueprintIdentifier = "957242B7B35D7EF93D2BCB02"
+               BuildableName = "AmpestraWidgets.appex"
+               BlueprintName = "AmpestraWidgets"
+               ReferencedContainer = "container:Ampestra.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
                BlueprintIdentifier = "F9F46C6176B1E77D3A082755"
                BuildableName = "KEFCore.framework"
                BlueprintName = "KEFCore"

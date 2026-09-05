@@ -36,3 +36,20 @@ speaker network.
 
 Record the iPhone model/iOS version, speaker model/firmware, and any failed step
 when reporting results.
+
+## Layout, interruptions, and widgets
+
+- In portrait and landscape, select the largest accessibility text size and
+  trigger a long connection error. Scroll to and use volume, power, and source.
+- Repeat on iPad in narrow split windows; confirm labels and menus are readable.
+- Start and end a phone call or another audio interruption; confirm hardware
+  volume capture stops and resumes appropriately without changing phone audio
+  unexpectedly.
+- Add the controls widget, choose each saved speaker, and exercise its volume
+  and mute buttons while the app is foregrounded, backgrounded, and locked.
+- Follow [IOS_SIRI_TESTING.md](IOS_SIRI_TESTING.md) for overlapping commands,
+  per-speaker forgetting, identity changes, and Wake-on-LAN.
+
+Simulator regression coverage includes large accessibility text, a long error,
+landscape scrolling, and selecting a source in the accessible picker. Physical audio, permissions,
+Siri delivery, widget execution, and Wake-on-LAN remain device sign-off checks.

@@ -3,6 +3,7 @@ import KEFCore
 import OSLog
 
 struct SpeakerCommandTimingPolicy: Sendable {
+    var commandTimeout: Duration = .seconds(25)
     var readAttempts = 2
     var readRetryDelay: Duration = .milliseconds(250)
     var wakePollingDelays: [Duration] = [
@@ -57,7 +58,92 @@ actor SpeakerCommandService {
         self.wakeSender = wakeSender
     }
 
+    private let commandQueue = SpeakerCommandQueue.shared
+
     func status(speakerID: String? = nil) async throws -> SpeakerCommandConfirmation {
+        try await execute(.status, speakerID: speakerID)
+    }
+
+    func setSource(_ source: SpeakerSource, speakerID: String? = nil) async throws -> SpeakerCommandConfirmation {
+        try await execute(.source(source), speakerID: speakerID)
+    }
+
+    func adjustVolume(by amount: Int, speakerID: String? = nil) async throws -> SpeakerCommandConfirmation {
+        try await execute(.adjust(amount), speakerID: speakerID)
+    }
+
+    func setVolume(_ volume: Int, speakerID: String? = nil) async throws -> SpeakerCommandConfirmation {
+        try await execute(.volume(volume), speakerID: speakerID)
+    }
+
+    func setMuted(_ muted: Bool, speakerID: String? = nil) async throws -> SpeakerCommandConfirmation {
+        try await execute(.mute(muted), speakerID: speakerID)
+    }
+
+    func toggleMute(speakerID: String? = nil) async throws -> SpeakerCommandConfirmation {
+        try await execute(.toggleMute, speakerID: speakerID)
+    }
+
+    func setPower(on: Bool, speakerID: String? = nil) async throws -> SpeakerCommandConfirmation {
+        try await execute(.power(on), speakerID: speakerID)
+    }
+
+    func performPlayback(_ action: SpeakerPlaybackCommand, speakerID: String? = nil) async throws -> SpeakerCommandConfirmation {
+        try await execute(.playback(action), speakerID: speakerID)
+    }
+
+    private func execute(_ command: Command, speakerID: String?) async throws -> SpeakerCommandConfirmation {
+        let id = try configuredSpeaker(id: speakerID).id
+        let timeout = timing.commandTimeout
+        return try await withThrowingTaskGroup(of: SpeakerCommandConfirmation.self) { group in
+            group.addTask {
+                try await self.commandQueue.run(speakerID: id) {
+                    try await self.perform(command, speakerID: id)
+                }
+            }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                throw SpeakerCommandError.timedOut
+            }
+            defer { group.cancelAll() }
+            guard let result = try await group.next() else { throw CancellationError() }
+            return result
+        }
+    }
+
+    private enum Command: Sendable {
+        case status, source(SpeakerSource), adjust(Int), volume(Int), mute(Bool), toggleMute
+        case power(Bool), playback(SpeakerPlaybackCommand)
+    }
+
+    private func perform(_ command: Command, speakerID: String) async throws -> SpeakerCommandConfirmation {
+        // Resolve again after acquiring the queue: a queued command must not
+        // resurrect a speaker that was forgotten while it waited.
+        _ = try configuredSpeaker(id: speakerID)
+        let result: SpeakerCommandConfirmation
+        switch command {
+        case .status: result = try await performStatus(speakerID: speakerID)
+        case .source(let source): result = try await performSetSource(source, speakerID: speakerID)
+        case .adjust(let amount): result = try await performAdjustVolume(by: amount, speakerID: speakerID)
+        case .volume(let volume): result = try await performSetVolume(volume, speakerID: speakerID)
+        case .mute(let muted): result = try await performSetMuted(muted, speakerID: speakerID)
+        case .toggleMute:
+            let connection = try await connection(for: speakerID)
+            result = try await performSetMuted(connection.snapshot.volume > 0, speakerID: speakerID, connection: connection)
+        case .power(let on): result = try await performSetPower(on: on, speakerID: speakerID)
+        case .playback(let action): result = try await performPlaybackCommand(action, speakerID: speakerID)
+        }
+        switch command {
+        case .adjust, .volume, .mute, .toggleMute:
+            await commandQueue.rememberVolume(result.volume, speakerID: speakerID)
+        case .source, .power:
+            await commandQueue.clearVolume(speakerID: speakerID)
+        default: break
+        }
+        return result
+    }
+
+    private func performStatus(speakerID: String? = nil) async throws -> SpeakerCommandConfirmation {
         let connection = try await connection(for: speakerID)
         return confirmation(
             record: connection.record,
@@ -67,7 +153,7 @@ actor SpeakerCommandService {
         )
     }
 
-    func setSource(
+    private func performSetSource(
         _ source: SpeakerSource,
         speakerID: String? = nil
     ) async throws -> SpeakerCommandConfirmation {
@@ -76,7 +162,7 @@ actor SpeakerCommandService {
 
         let changed = connection.snapshot.source != source
         if changed {
-            try await performWrite(command: "set-source", speakerID: connection.record.id) {
+            try await performWrite(command: "set-source", connection: connection) {
                 try await connection.client.setSource(source)
             }
         }
@@ -103,7 +189,7 @@ actor SpeakerCommandService {
         return try await adjustVolume(by: amount, speakerID: speakerID)
     }
 
-    func adjustVolume(
+    private func performAdjustVolume(
         by amount: Int,
         speakerID: String? = nil
     ) async throws -> SpeakerCommandConfirmation {
@@ -111,10 +197,12 @@ actor SpeakerCommandService {
         let connection = try await connection(for: speakerID)
         try requirePoweredOn(connection.snapshot)
 
-        let target = VolumePolicy.clampedVolume(connection.snapshot.volume + amount)
+        let current = VolumePolicy.clampedVolume(connection.snapshot.volume)
+        let boundedAmount = min(100, max(-100, amount))
+        let target = VolumePolicy.clampedVolume(current + boundedAmount)
         let changed = target != connection.snapshot.volume
         if changed {
-            try await performWrite(command: "adjust-volume", speakerID: connection.record.id) {
+            try await performWrite(command: "adjust-volume", connection: connection) {
                 try await connection.client.setVolume(target)
             }
         }
@@ -133,7 +221,7 @@ actor SpeakerCommandService {
         )
     }
 
-    func setVolume(
+    private func performSetVolume(
         _ volume: Int,
         speakerID: String? = nil
     ) async throws -> SpeakerCommandConfirmation {
@@ -143,7 +231,7 @@ actor SpeakerCommandService {
 
         let changed = connection.snapshot.volume != volume
         if changed {
-            try await performWrite(command: "set-volume", speakerID: connection.record.id) {
+            try await performWrite(command: "set-volume", connection: connection) {
                 try await connection.client.setVolume(volume)
             }
         }
@@ -162,22 +250,24 @@ actor SpeakerCommandService {
         )
     }
 
-    func setMuted(
+    private func performSetMuted(
         _ shouldMute: Bool,
-        speakerID: String? = nil
+        speakerID: String? = nil,
+        connection suppliedConnection: SpeakerConnection? = nil
     ) async throws -> SpeakerCommandConfirmation {
-        let connection = try await connection(for: speakerID)
+        let connection: SpeakerConnection
+        if let suppliedConnection { connection = suppliedConnection }
+        else { connection = try await self.connection(for: speakerID) }
         try requirePoweredOn(connection.snapshot)
 
         if shouldMute, connection.snapshot.volume > 0 {
             speakerRecords.rememberAudibleVolume(connection.snapshot.volume, for: connection.record.id)
         }
-        let target = shouldMute
-            ? 0
-            : (connection.record.lastAudibleVolume ?? 20)
+        let target = shouldMute ? 0 : (connection.snapshot.volume > 0
+            ? connection.snapshot.volume : (connection.record.lastAudibleVolume ?? 20))
         let changed = connection.snapshot.volume != target
         if changed {
-            try await performWrite(command: shouldMute ? "mute" : "unmute", speakerID: connection.record.id) {
+            try await performWrite(command: shouldMute ? "mute" : "unmute", connection: connection) {
                 try await connection.client.setVolume(target)
             }
         }
@@ -199,7 +289,7 @@ actor SpeakerCommandService {
         )
     }
 
-    func setPower(
+    private func performSetPower(
         on shouldPowerOn: Bool,
         speakerID: String? = nil
     ) async throws -> SpeakerCommandConfirmation {
@@ -207,13 +297,16 @@ actor SpeakerCommandService {
 
         do {
             let connection = try await connection(to: record, retryReads: !shouldPowerOn)
+            guard connection.snapshot.status.allowsPowerToggle else {
+                throw SpeakerCommandError.powerUnavailable
+            }
             let isPoweredOn = connection.snapshot.status == .powerOn
             let changed = shouldPowerOn != isPoweredOn
 
             if changed {
                 try await performWrite(
                     command: shouldPowerOn ? "power-on" : "standby",
-                    speakerID: connection.record.id
+                    connection: connection
                 ) {
                     if shouldPowerOn {
                         try await connection.client.powerOn()
@@ -231,7 +324,7 @@ actor SpeakerCommandService {
         }
     }
 
-    func performPlayback(
+    private func performPlaybackCommand(
         _ action: SpeakerPlaybackCommand,
         speakerID: String? = nil
     ) async throws -> SpeakerCommandConfirmation {
@@ -254,7 +347,7 @@ actor SpeakerCommandService {
         case .play:
             changed = !isPlaying
             if changed {
-                try await performWrite(command: "play", speakerID: connection.record.id) {
+                try await performWrite(command: "play", connection: connection) {
                     try await connection.client.togglePlayPause()
                 }
                 isPlaying = true
@@ -262,19 +355,19 @@ actor SpeakerCommandService {
         case .pause:
             changed = isPlaying
             if changed {
-                try await performWrite(command: "pause", speakerID: connection.record.id) {
+                try await performWrite(command: "pause", connection: connection) {
                     try await connection.client.togglePlayPause()
                 }
                 isPlaying = false
             }
         case .next:
             changed = true
-            try await performWrite(command: "next", speakerID: connection.record.id) {
+            try await performWrite(command: "next", connection: connection) {
                 try await connection.client.nextTrack()
             }
         case .previous:
             changed = true
-            try await performWrite(command: "previous", speakerID: connection.record.id) {
+            try await performWrite(command: "previous", connection: connection) {
                 try await connection.client.previousTrack()
             }
         }
@@ -329,12 +422,16 @@ actor SpeakerCommandService {
         to record: SavedSpeaker,
         retryReads: Bool
     ) async throws -> SpeakerConnection {
+        guard record.requiresReconfirmation != true else { throw SpeakerCommandError.speakerIdentityChanged }
         var lastError: SpeakerCommandError = .unreachable
 
         for (hostIndex, host) in record.connectionHosts.enumerated() {
+            try Task.checkCancellation()
             let client = clientFactory(host)
             do {
-                let snapshot = try await readSnapshot(from: client, retry: retryReads)
+                var snapshot = try await readSnapshot(from: client, retry: retryReads)
+                guard record.accepts(snapshot) else { throw SpeakerCommandError.speakerIdentityChanged }
+                snapshot.volume = await commandQueue.reconciledVolume(snapshot.volume, speakerID: record.id)
                 speakerRecords.markReachable(id: record.id, host: host, snapshot: snapshot)
                 let updatedRecord = speakerRecords.speaker(id: record.id) ?? record
                 return SpeakerConnection(
@@ -346,6 +443,8 @@ actor SpeakerCommandService {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
+                try Task.checkCancellation()
+                if (error as? URLError)?.code == .cancelled { throw CancellationError() }
                 lastError = mappedError(error)
                 Self.logger.debug(
                     "Speaker connection candidate \(hostIndex + 1, privacy: .public) failed for \(record.id, privacy: .private(mask: .hash)): \(String(describing: lastError), privacy: .private)"
@@ -364,11 +463,16 @@ actor SpeakerCommandService {
         var lastError: Error = SpeakerCommandError.unreachable
 
         for attempt in 0..<attempts {
+            try Task.checkCancellation()
             do {
-                return try await client.getSnapshot()
+                let snapshot = try await client.getSnapshot()
+                try Task.checkCancellation()
+                return snapshot
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
+                try Task.checkCancellation()
+                if (error as? URLError)?.code == .cancelled { throw CancellationError() }
                 lastError = error
                 let mapped = mappedError(error)
                 guard attempt + 1 < attempts, mapped.isReachabilityFailure else { break }
@@ -383,6 +487,7 @@ actor SpeakerCommandService {
     }
 
     private func wake(_ record: SavedSpeaker) async throws -> SpeakerCommandConfirmation {
+        try Task.checkCancellation()
         guard let macAddress = record.macAddress else {
             throw SpeakerCommandError.wakeUnavailable
         }
@@ -400,8 +505,11 @@ actor SpeakerCommandService {
             do {
                 let connection = try await connection(to: record, retryReads: false)
                 var snapshot = connection.snapshot
+                guard snapshot.status.allowsPowerToggle else {
+                    throw SpeakerCommandError.powerUnavailable
+                }
                 if snapshot.status != .powerOn {
-                    try await performWrite(command: "power-on-after-wake", speakerID: connection.record.id) {
+                    try await performWrite(command: "power-on-after-wake", connection: connection) {
                         try await connection.client.powerOn()
                     }
                     snapshot.status = .powerOn
@@ -422,14 +530,25 @@ actor SpeakerCommandService {
 
     private func performWrite(
         command: String,
-        speakerID: String,
+        connection: SpeakerConnection,
         operation: () async throws -> Void
     ) async throws {
+        let speakerID = connection.record.id
         let clock = ContinuousClock()
         let start = clock.now
 
         do {
+            try Task.checkCancellation()
+            guard let record = speakerRecords.speaker(id: speakerID) else {
+                throw SpeakerCommandError.speakerNotFound
+            }
+            guard record.host == connection.host,
+                  record.macAddress == connection.record.macAddress,
+                  record.accepts(connection.snapshot) else {
+                throw SpeakerCommandError.speakerIdentityChanged
+            }
             try await operation()
+            try Task.checkCancellation()
             let milliseconds = Self.milliseconds(start.duration(to: clock.now))
             Self.logger.info(
                 "Speaker command \(command, privacy: .public) succeeded in \(milliseconds, privacy: .public) ms for \(speakerID, privacy: .private(mask: .hash))"
@@ -437,6 +556,8 @@ actor SpeakerCommandService {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
+            try Task.checkCancellation()
+            if (error as? URLError)?.code == .cancelled { throw CancellationError() }
             let mapped = mappedError(error)
             let milliseconds = Self.milliseconds(start.duration(to: clock.now))
             Self.logger.error(
@@ -556,8 +677,11 @@ struct SpeakerCommandConfirmation: Equatable, Sendable {
 
 enum SpeakerCommandError: Error, Equatable, Sendable, LocalizedError, CustomLocalizedStringResourceConvertible {
     case noConfiguredSpeaker
+    case commandQueueFull
+    case speakerIdentityChanged
     case speakerNotFound
     case speakerInStandby
+    case powerUnavailable
     case invalidVolume
     case invalidAdjustment
     case playbackUnavailable
@@ -574,10 +698,16 @@ enum SpeakerCommandError: Error, Equatable, Sendable, LocalizedError, CustomLoca
         switch self {
         case .noConfiguredSpeaker:
             "Open Ampestra and connect a speaker first."
+        case .commandQueueFull:
+            "Too many speaker commands are waiting. Try again in a moment."
+        case .speakerIdentityChanged:
+            "The saved speaker address or identity has changed. Open Ampestra and reconnect the intended speaker."
         case .speakerNotFound:
             "That saved speaker is no longer available in Ampestra."
         case .speakerInStandby:
             "Your speaker is in standby. Ask me to turn it on first."
+        case .powerUnavailable:
+            "Power controls are unavailable while your speaker is updating, being set up, or reporting an unknown state."
         case .invalidVolume:
             "Choose a speaker volume between 0 and 100."
         case .invalidAdjustment:

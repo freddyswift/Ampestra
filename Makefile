@@ -7,6 +7,7 @@ IOS_SCHEME ?= Ampestra iOS
 IOS_ARCHIVE_PATH ?= dist/ios/Ampestra.xcarchive
 IOS_EXPORT_PATH ?= dist/ios/upload
 IOS_EXPORT_OPTIONS ?= iOS/ExportOptions-TestFlight.plist
+IOS_TEST_DESTINATION ?= platform=iOS Simulator,name=iPhone 17 Pro,OS=27.0
 
 ifeq ($(SDK),27)
 export DEVELOPER_DIR := /Applications/Xcode-beta.app/Contents/Developer
@@ -27,9 +28,13 @@ build:
 check:
 	$(SWIFT) build -Xswiftc -warnings-as-errors
 	$(SWIFT) test
-	for f in script/*.sh; do bash -n "$$f"; done
+	for f in script/*.sh; do bash -n "$$f" || exit; done
+	python3 -m unittest discover -s Tests/ScriptTests -p 'test_*.py'
 	plutil -lint Sources/Ampestra/Info.plist
 	plutil -lint iOS/AmpestraMobile/Info.plist
+	plutil -lint iOS/AmpestraMobile/AmpestraMobile.entitlements
+	plutil -lint iOS/AmpestraWidgets/Info.plist
+	plutil -lint iOS/AmpestraWidgets/AmpestraWidgets.entitlements
 	plutil -lint $(IOS_EXPORT_OPTIONS)
 	$(MAKE) version-check
 
@@ -52,7 +57,10 @@ ios-build: ios-project
 	xcodebuild -project Ampestra.xcodeproj -scheme "$(IOS_SCHEME)" -destination "generic/platform=iOS Simulator" build CODE_SIGNING_ALLOWED=NO
 
 ios-test: ios-project
-	xcodebuild -project Ampestra.xcodeproj -scheme "$(IOS_SCHEME)" -destination "platform=iOS Simulator,name=iPhone 17 Pro,OS=27.0" test CODE_SIGNING_ALLOWED=NO
+	xcodebuild -project Ampestra.xcodeproj -scheme "$(IOS_SCHEME)" -destination "$(IOS_TEST_DESTINATION)" test CODE_SIGNING_ALLOWED=NO
+
+.PHONY: check-all
+check-all: check ios-test
 
 ios-archive: ios-version-check ios-project
 	mkdir -p "$(dir $(IOS_ARCHIVE_PATH))"

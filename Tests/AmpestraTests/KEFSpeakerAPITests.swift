@@ -4,6 +4,47 @@ import XCTest
 @testable import KEFCore
 
 final class KEFSpeakerAPITests: XCTestCase {
+    func testSlowStreamingResponseHasTotalDeadline() async throws {
+        let server = try LocalHTTPServer(chunkSize: 32, chunkDelay: 0.05) { _ in
+            Self.httpResponse(status: "200 OK", body: "[" + String(repeating: " ", count: 4000) + "]")
+        }
+        defer { server.stop() }
+        let session = KEFSpeakerAPI.makeDefaultSession(resourceTimeout: 0.25)
+        let api = KEFSpeakerAPI(host: "127.0.0.1:\(server.port)", session: session)
+        let started = ContinuousClock.now
+        do {
+            _ = try await api.getStatus()
+            XCTFail("Expected total timeout while bytes keep arriving")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .timedOut)
+        }
+        XCTAssertLessThan(started.duration(to: .now), .seconds(3))
+    }
+
+    func testVolumeReadRejectsMalformedAndOutOfRangeValues() async throws {
+        for rawValue in ["1e100", "-1", "101", "null", "3.5", "\"40\""] {
+            let (api, _) = makeAPI { _ in .json("[{\"i32_\":\(rawValue)}]") }
+            do {
+                _ = try await api.getVolume()
+                XCTFail("Expected invalid volume \(rawValue) to be rejected")
+            } catch KEFError.invalidResponse {
+                // An invalid volume must not become a plausible muted reading.
+            }
+        }
+    }
+
+    func testJSONIntegerConversionRejectsOverflowAndNonIntegralValues() throws {
+        for value in [Double.greatestFiniteMagnitude, Double.infinity, -Double.infinity, Double.nan,
+                      Double(Int.max), Double(Int.min).nextDown, 4.5] {
+            XCTAssertNil(KEFJSONValue.double(value).intValue)
+        }
+        XCTAssertEqual(KEFJSONValue.double(42).intValue, 42)
+        XCTAssertEqual(KEFJSONValue.double(Double(Int.min)).intValue, Int.min)
+
+        let entries = try KEFSpeakerAPI.decodeDataEntries(Data(#"[{"i32_":1e100}]"#.utf8))
+        XCTAssertNil(entries.first?.int("i32_"))
+    }
+
     func testGetStatusBuildsGetDataRequest() async throws {
         let (api, recorder) = makeAPI { _ in
             .json(#"[{"kefSpeakerStatus":"powerOn"}]"#)
@@ -615,6 +656,8 @@ private final class LocalHTTPServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "LocalHTTPServer")
     private let lock = NSLock()
     private var storedRequests: [String] = []
+    private let chunkSize: Int
+    private let chunkDelay: TimeInterval
 
     private(set) var port: UInt16 = 0
 
@@ -622,7 +665,9 @@ private final class LocalHTTPServer: @unchecked Sendable {
         lock.withLock { storedRequests }
     }
 
-    init(handler: @escaping (String) -> String) throws {
+    init(chunkSize: Int = Int.max, chunkDelay: TimeInterval = 0, handler: @escaping (String) -> String) throws {
+        self.chunkSize = chunkSize
+        self.chunkDelay = chunkDelay
         listener = try NWListener(using: .tcp, on: .any)
         let ready = DispatchSemaphore(value: 0)
         let startupError = LockedValue<NWError?>(nil)
@@ -682,9 +727,7 @@ private final class LocalHTTPServer: @unchecked Sendable {
                let request = String(data: requestData, encoding: .utf8) {
                 self.record(request)
                 let response = handler(request)
-                connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in
-                    connection.cancel()
-                })
+                self.send(Data(response.utf8), on: connection)
                 return
             }
 
@@ -694,6 +737,19 @@ private final class LocalHTTPServer: @unchecked Sendable {
                 connection.cancel()
             }
         }
+    }
+
+    private func send(_ data: Data, on connection: NWConnection) {
+        let count = min(data.count, chunkSize)
+        connection.send(content: data.prefix(count), completion: .contentProcessed { [weak self] error in
+            guard let self, error == nil, count < data.count else {
+                connection.cancel()
+                return
+            }
+            self.queue.asyncAfter(deadline: .now() + self.chunkDelay) {
+                self.send(Data(data.dropFirst(count)), on: connection)
+            }
+        })
     }
 
     private func record(_ request: String) {

@@ -3,6 +3,7 @@ import SwiftUI
 
 struct RemoteView: View {
     @ObservedObject var store: RemoteStore
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var presentedSheet: RemoteSheet?
 
     init(store: RemoteStore) {
@@ -24,46 +25,50 @@ struct RemoteView: View {
                 let showsPlayback = store.speakerStatus == .powerOn
                     && store.hasConfiguredSpeaker
                     && store.nowPlaying != nil
-                let compact = proxy.size.height < 690
+                let compact = dynamicTypeSize.isAccessibilitySize || proxy.size.height < 690
                     || proxy.size.width < 370
                     || (showsPlayback && proxy.size.height < 900)
 
                 ZStack {
                     AmpestraBackdrop()
 
-                    VStack(spacing: compact ? 10 : 14) {
-                        SpeakerOverviewCard(
-                            store: store,
-                            compact: compact,
-                            chooseSpeaker: showConnection,
-                            showSettings: showSettings
-                        )
+                    ScrollView {
+                        VStack(spacing: compact ? 10 : 14) {
+                            SpeakerOverviewCard(
+                                store: store,
+                                compact: compact,
+                                chooseSpeaker: showConnection,
+                                showSettings: showSettings
+                            )
 
-                        if store.lastError != nil {
-                            RemoteErrorBanner(store: store)
-                                .transition(.move(edge: .top).combined(with: .opacity))
+                            if store.lastError != nil {
+                                RemoteErrorBanner(store: store)
+                                    .transition(.move(edge: .top).combined(with: .opacity))
+                            }
+
+                            primaryControls(compact: compact)
+                                .layoutPriority(1)
+
+                            if showsPlayback {
+                                PlaybackControlCard(store: store, compact: compact)
+                            }
+
+                            if store.speakerStatus == .powerOn, store.hasConfiguredSpeaker {
+                                Spacer(minLength: compact ? 4 : 8)
+
+                                SpeakerActionsRow(store: store, compact: compact)
+                            } else if !store.hasConfiguredSpeaker {
+                                ChooseSpeakerCard(chooseSpeaker: showConnection)
+                            }
                         }
-
-                        primaryControls(compact: compact)
-                            .layoutPriority(1)
-
-                        if showsPlayback {
-                            PlaybackControlCard(store: store, compact: compact)
-                        }
-
-                        if store.speakerStatus == .powerOn, store.hasConfiguredSpeaker {
-                            Spacer(minLength: compact ? 4 : 8)
-
-                            SpeakerActionsRow(store: store, compact: compact)
-                        } else if !store.hasConfiguredSpeaker {
-                            ChooseSpeakerCard(chooseSpeaker: showConnection)
-                        }
+                        .frame(maxWidth: 540, minHeight: max(0, proxy.size.height - 24), alignment: .top)
+                        .padding(.horizontal, compact ? 14 : 18)
+                        .padding(.top, compact ? 4 : 8)
+                        .padding(.bottom, 12)
+                        .frame(maxWidth: .infinity, alignment: .top)
                     }
-                    .frame(maxWidth: 540, maxHeight: .infinity, alignment: .top)
-                    .padding(.horizontal, compact ? 14 : 18)
-                    .padding(.top, compact ? 4 : 8)
-                    .padding(.bottom, 12)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .scrollBounceBehavior(.basedOnSize)
+                    .accessibilityIdentifier("remote-controls-scroll")
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
@@ -86,6 +91,7 @@ struct RemoteView: View {
                 .frame(maxHeight: .infinity)
         } else if store.hasConfiguredSpeaker {
             VolumeControlCard(store: store, compact: compact)
+                .frame(minHeight: compact ? 280 : 380)
         }
     }
 

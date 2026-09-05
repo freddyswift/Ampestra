@@ -629,6 +629,7 @@ final class AppState: ObservableObject {
                 guard !Task.isCancelled, self.speaker === api else { return false }
                 markConnectionHealthy(for: api, stopDiscovery: true, trustHost: trustOnSuccess)
                 await refresh()
+                guard !Task.isCancelled, self.speaker === api else { return false }
                 startPolling()
                 return true
             } catch {
@@ -1127,33 +1128,37 @@ final class AppState: ObservableObject {
     // MARK: - Wake-on-LAN
 
     var speakerMAC: String? {
-        if let currentHost,
-           let mac = discovery.speakers.first(where: { $0.host == currentHost })?.macAddress {
-            return mac
-        }
-
-        if let mac = discovery.speakers.first(where: { $0.macAddress != nil })?.macAddress {
-            return mac
-        }
-
-        return nil
+        guard let host = currentHost ?? preferredWakeHost else { return nil }
+        return discovery.speakers.first(where: { $0.host == host })?.macAddress
     }
 
     func wakeSpeaker() {
-        guard let mac = speakerMAC else { return }
+        guard !isBusy, let mac = speakerMAC,
+              let host = currentHost ?? preferredWakeHost else { return }
         isBusy = true
-        Task {
-            defer { isBusy = false }
-            _ = sendWakeOnLAN(macAddress: mac)
+        busyActionGeneration += 1
+        let generation = busyActionGeneration
+        busyActionTask = Task {
+            defer {
+                if busyActionGeneration == generation {
+                    isBusy = false
+                    busyActionTask = nil
+                }
+            }
+            guard !Task.isCancelled else { return }
+            guard sendWakeOnLAN(macAddress: mac) else {
+                connectionError = "Could not send the wake request"
+                return
+            }
             for _ in 0..<timing.wakeAttemptCount {
                 try? await timing.sleep(timing.wakePollInterval)
                 guard !Task.isCancelled else { return }
-                if let host = currentHost ?? preferredWakeHost {
-                    let api = speakerClientFactory.makeClient(host: host)
-                    if await api.testConnection() {
-                        connect(to: host)
-                        return
-                    }
+                let api = speakerClientFactory.makeClient(host: host)
+                let isReachable = await api.testConnection()
+                guard !Task.isCancelled, busyActionGeneration == generation else { return }
+                if isReachable {
+                    connect(to: host)
+                    return
                 }
             }
             connectionError = "Speaker did not wake up"

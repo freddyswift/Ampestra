@@ -148,6 +148,16 @@ codesign_app() {
   fi
 
   codesign "${codesign_args[@]}" "$APP_DIR" >/dev/null
+  if [[ "$SIGNING_IDENTITY" == "-" ]]; then
+    # Match development builds: an ad-hoc host needs this entitlement to load
+    # the embedded payload and Sparkle under hardened runtime library validation.
+    codesign \
+      --force \
+      --sign - \
+      --options runtime \
+      --entitlements "$ROOT_DIR/Resources/DevAdHoc.entitlements" \
+      "$APP_DIR" >/dev/null
+  fi
 }
 
 confirm_install() {

@@ -147,7 +147,9 @@ final class AppStateMenuUITests: XCTestCase {
         speaker.nextTrackError = URLError(.networkConnectionLost)
         speaker.testConnectionResult = false
         let appState = makeConnectedAppState(speaker: speaker)
-        await waitUntil { appState.isConnected }
+        // Connection is announced before the initial snapshot/player refresh
+        // completes. Wait for that refresh so it cannot clear the test error.
+        await waitUntil { appState.nowPlaying?.title == "Track" }
 
         appState.nextTrack()
 

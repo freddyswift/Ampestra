@@ -2,10 +2,11 @@ import AppIntents
 import Combine
 import Foundation
 import KEFCore
+import WidgetKit
 
 @MainActor
 final class RemoteStore: ObservableObject {
-    typealias ClientFactory = @MainActor (String) -> KEFSpeakerClient
+    typealias ClientFactory = @Sendable (String) -> KEFSpeakerClient
     typealias Sleep = @Sendable (Duration) async throws -> Void
 
     @Published private(set) var connectionState: SpeakerConnectionState = .disconnected
@@ -43,6 +44,7 @@ final class RemoteStore: ObservableObject {
                 return
             }
             defaults.set(clamped, forKey: SpeakerPreferenceKeys.volumeStep)
+            WidgetCenter.shared.reloadTimelines(ofKind: AmpestraWidgetConstants.controlsKind)
         }
     }
 
@@ -52,20 +54,25 @@ final class RemoteStore: ObservableObject {
     private let defaults: UserDefaults
     private let speakerRecords: SpeakerRecordStore
     private let clientFactory: ClientFactory
+    private let commands: SpeakerCommandService
+    private var currentSpeakerID: String?
+    private var volumeTasks: [UUID: Task<Void, Never>] = [:]
+    private var lastVolumeTask: Task<Void, Never>?
     private let reconnectPolicy: ReconnectPolicy
     private let pollingInterval: Duration
     private let sleep: Sleep
-    private let volumeDispatcher: VolumeCommandDispatcher
     private var speaker: KEFSpeakerClient?
     private var speakerMACAddress: String?
     private var connectionTask: Task<Void, Never>?
     private var pollingTask: Task<Void, Never>?
     private var commandTask: Task<Void, Never>?
+    private var commandGeneration = 0
     private var noticeTask: Task<Void, Never>?
     private var appIsActive = false
     private var connectionGeneration = 0
     private var consecutiveFailures = 0
     private var mutedRestoreVolume: Int?
+    private var isPreviewingVolume = false
     private let isDemoMode: Bool
 
     init(
@@ -76,17 +83,17 @@ final class RemoteStore: ObservableObject {
         reconnectPolicy: ReconnectPolicy = ReconnectPolicy(),
         pollingInterval: Duration = .seconds(3),
         sleep: @escaping Sleep = { duration in try await Task.sleep(for: duration) },
-        volumeDispatcher: VolumeCommandDispatcher? = nil,
         clientFactory: @escaping ClientFactory = { KEFSpeakerAPI(host: $0) }
     ) {
         self.defaults = defaults
-        self.speakerRecords = speakerRecords ?? SpeakerRecordStore(defaults: defaults)
+        let records = speakerRecords ?? SpeakerRecordStore(defaults: defaults)
+        self.speakerRecords = records
+        self.commands = SpeakerCommandService(speakerRecords: records, clientFactory: clientFactory)
         self.discovery = discovery ?? KEFDiscovery()
         self.hardwareButtons = hardwareButtons ?? HardwareVolumeButtonController()
         self.reconnectPolicy = reconnectPolicy
         self.pollingInterval = pollingInterval
         self.sleep = sleep
-        self.volumeDispatcher = volumeDispatcher ?? VolumeCommandDispatcher()
         self.clientFactory = clientFactory
 
         manualHost = defaults.string(forKey: SpeakerPreferenceKeys.manualHost) ?? ""
@@ -112,6 +119,9 @@ final class RemoteStore: ObservableObject {
         }
 
         if isDemoMode {
+            if ProcessInfo.processInfo.arguments.contains("--demo-error") {
+                lastError = "The speaker could not be reached. Check that your iPhone is on the same network, then reconnect to the intended speaker. This detailed message must stay readable at larger accessibility text sizes."
+            }
             let demoIsStandby = ProcessInfo.processInfo.arguments.contains("--demo-standby")
             currentHost = "192.168.1.42"
             apply(
@@ -178,6 +188,7 @@ final class RemoteStore: ObservableObject {
         appIsActive = isActive
 
         if isActive {
+            localNetworkPermissionDenied = false
             if isDemoMode {
                 updateHardwareButtonCapture()
             } else if let speaker {
@@ -185,7 +196,7 @@ final class RemoteStore: ObservableObject {
                 beginPolling(using: speaker)
                 updateHardwareButtonCapture()
             } else if let host = currentHost ?? savedSpeaker?.host {
-                connect(to: host, macAddress: savedSpeaker?.macAddress)
+                connect(to: host, macAddress: savedSpeaker?.macAddress, confirmingIdentity: false)
             }
         } else {
             connectionGeneration += 1
@@ -193,10 +204,10 @@ final class RemoteStore: ObservableObject {
             connectionTask = nil
             pollingTask?.cancel()
             pollingTask = nil
-            commandTask?.cancel()
-            commandTask = nil
-            volumeDispatcher.cancel()
+            cancelCommand()
+            cancelVolumeTasks()
             isAdjustingVolume = false
+            isPreviewingVolume = false
             isSendingCommand = false
             discovery.stopDiscovery()
             hardwareButtons.stop(mutePhone: mutePhoneOnStop && mutePhoneOnExit)
@@ -218,7 +229,7 @@ final class RemoteStore: ObservableObject {
         connect(to: discoveredSpeaker.host, macAddress: discoveredSpeaker.macAddress)
     }
 
-    func connect(to rawHost: String, macAddress: String? = nil) {
+    func connect(to rawHost: String, macAddress: String? = nil, confirmingIdentity: Bool = true) {
         guard let host = ManualHostValidator.normalizedHost(rawHost) else {
             connectionState = .failed(message: "Enter a private IP address or .local hostname.")
             lastError = "That speaker address is not a valid local-network address."
@@ -237,14 +248,22 @@ final class RemoteStore: ObservableObject {
         let generation = connectionGeneration
         connectionTask?.cancel()
         pollingTask?.cancel()
-        commandTask?.cancel()
-        volumeDispatcher.cancel()
+        cancelCommand()
+        cancelVolumeTasks()
+        isAdjustingVolume = false
+        isPreviewingVolume = false
+        speaker = nil
+        speakerMACAddress = nil
+        mutedRestoreVolume = nil
+        clearPlayerState()
         hardwareButtons.stop()
         discovery.stopDiscovery()
         consecutiveFailures = 0
         lastError = nil
         connectionState = .connecting
         let candidate = clientFactory(host)
+        let savedIdentity = speakerRecords.allSpeakers().first { $0.host == host }
+        currentSpeakerID = nil
 
         connectionTask = Task { @MainActor [weak self, candidate] in
             guard let self else { return }
@@ -254,17 +273,22 @@ final class RemoteStore: ObservableObject {
                       self.appIsActive,
                       self.connectionGeneration == generation else { return }
 
+                if !confirmingIdentity, let savedIdentity, !savedIdentity.accepts(snapshot) {
+                    throw SpeakerCommandError.speakerIdentityChanged
+                }
                 self.speaker = candidate
                 self.speakerMACAddress = macAddress
                 self.apply(snapshot)
                 self.connectionState = .connected
+                self.localNetworkPermissionDenied = false
                 self.manualHost = host
                 self.defaults.set(host, forKey: SpeakerPreferenceKeys.manualHost)
-                self.speakerRecords.save(
+                self.currentSpeakerID = self.speakerRecords.save(
                     host: host,
                     macAddress: macAddress,
                     snapshot: snapshot
-                )
+                )?.id
+                WidgetCenter.shared.reloadTimelines(ofKind: AmpestraWidgetConstants.controlsKind)
                 AmpestraShortcuts.updateAppShortcutParameters()
                 self.beginPolling(using: candidate)
                 self.updateHardwareButtonCapture()
@@ -286,31 +310,37 @@ final class RemoteStore: ObservableObject {
         guard let host = currentHost ?? savedSpeaker?.host else { return }
         connect(
             to: host,
-            macAddress: speakerMACAddress ?? savedSpeaker?.macAddress
+            macAddress: speakerMACAddress ?? savedSpeaker?.macAddress,
+            confirmingIdentity: false
         )
     }
 
     func disconnect(forget: Bool = false) {
+        let forgottenID = currentSpeakerID ?? speakerRecords.allSpeakers().first { $0.host == currentHost }?.id
         connectionGeneration += 1
         connectionTask?.cancel()
         pollingTask?.cancel()
-        commandTask?.cancel()
-        volumeDispatcher.cancel()
+        cancelCommand()
+        cancelVolumeTasks()
         discovery.stopDiscovery()
         speaker = nil
         speakerMACAddress = nil
+        mutedRestoreVolume = nil
         currentHost = nil
+        currentSpeakerID = nil
         connectionState = .disconnected
         lastError = nil
         isSendingCommand = false
         isAdjustingVolume = false
+        isPreviewingVolume = false
         clearPlayerState()
         hardwareButtons.stop()
 
         if forget {
-            speakerRecords.removeAll()
+            if let forgottenID { speakerRecords.remove(id: forgottenID) }
             manualHost = ""
             defaults.removeObject(forKey: SpeakerPreferenceKeys.manualHost)
+            WidgetCenter.shared.reloadTimelines(ofKind: AmpestraWidgetConstants.controlsKind)
             AmpestraShortcuts.updateAppShortcutParameters()
         }
     }
@@ -326,31 +356,67 @@ final class RemoteStore: ObservableObject {
     }
 
     func setVolume(_ requestedVolume: Int) {
+        isPreviewingVolume = false
         let target = VolumePolicy.clampedVolume(requestedVolume)
         if isDemoMode {
             volume = target
             return
         }
 
-        guard canControlSpeaker, let speaker else { return }
+        guard canControlSpeaker, let id = currentSpeakerID else { return }
         volume = target
-        if target > 0 { mutedRestoreVolume = nil }
-        isAdjustingVolume = true
+        enqueueVolumeCommand { [commands] in
+            try await commands.setVolume(target, speakerID: id)
+        }
+    }
 
-        volumeDispatcher.submit(target, to: speaker) { [weak self, weak speaker] result in
-            guard let self, let speaker, self.speaker === speaker else { return }
-            self.isAdjustingVolume = false
-            switch result {
-            case .success:
+    private func enqueueVolumeCommand(
+        _ action: @escaping @Sendable () async throws -> SpeakerCommandConfirmation
+    ) {
+        guard volumeTasks.count < 64 else {
+            lastError = message(for: SpeakerCommandError.commandQueueFull)
+            return
+        }
+        let generation = connectionGeneration
+        let token = UUID()
+        let previous = lastVolumeTask
+        isAdjustingVolume = true
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.volumeTasks[token] = nil
+                if self.connectionGeneration == generation {
+                    self.isAdjustingVolume = !self.volumeTasks.isEmpty
+                    if self.volumeTasks.isEmpty { self.lastVolumeTask = nil }
+                }
+            }
+            do {
+                await previous?.value
+                try Task.checkCancellation()
+                let result = try await action()
+                guard !Task.isCancelled, self.connectionGeneration == generation else { return }
+                if self.volumeTasks.count == 1 { self.volume = result.volume }
                 self.lastError = nil
-            case .failure(let error):
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled, self.connectionGeneration == generation else { return }
                 self.handleCommandFailure(error)
             }
         }
+        volumeTasks[token] = task
+        lastVolumeTask = task
+    }
+
+    private func cancelVolumeTasks() {
+        volumeTasks.values.forEach { $0.cancel() }
+        volumeTasks.removeAll()
+        lastVolumeTask = nil
     }
 
     func previewVolume(_ requestedVolume: Int) {
         guard canControlSpeaker || isDemoMode else { return }
+        isPreviewingVolume = true
         volume = VolumePolicy.clampedVolume(requestedVolume)
     }
 
@@ -359,24 +425,29 @@ final class RemoteStore: ObservableObject {
     }
 
     func adjustVolume(direction: Int, originatedFromHardware: Bool = false) {
-        guard direction != 0 else { return }
-        guard canControlSpeaker || isDemoMode else { return }
-        let policy = VolumePolicy(usesFixedSteps: true, stepSize: volumeStep)
-        let target = policy.nextVolume(from: volume, direction: direction)
-        guard target != volume else {
-            if originatedFromHardware {
-                showNotice(direction > 0 ? "Speaker already at maximum" : "Speaker already muted")
-            }
-            return
+        guard direction != 0, canControlSpeaker || isDemoMode else { return }
+        let amount = direction.signum() * volumeStep
+        let target = VolumePolicy.clampedVolume(volume + amount)
+        if isDemoMode { volume = target; return }
+        guard let id = currentSpeakerID else { return }
+        volume = target
+        enqueueVolumeCommand { [commands] in
+            try await commands.adjustVolume(by: amount, speakerID: id)
         }
-        setVolume(target)
     }
 
     func toggleMute() {
         guard canControlSpeaker || isDemoMode else { return }
-        let result = VolumePolicy.muteToggle(from: volume, restoreVolume: mutedRestoreVolume)
-        mutedRestoreVolume = result.restoreVolume
-        setVolume(result.targetVolume)
+        if isDemoMode {
+            let result = VolumePolicy.muteToggle(from: volume, restoreVolume: mutedRestoreVolume)
+            mutedRestoreVolume = result.restoreVolume
+            volume = result.targetVolume
+            return
+        }
+        guard let id = currentSpeakerID else { return }
+        enqueueVolumeCommand { [commands] in
+            try await commands.toggleMute(speakerID: id)
+        }
     }
 
     func previousTrack() {
@@ -386,9 +457,9 @@ final class RemoteStore: ObservableObject {
             return
         }
 
-        guard let speaker else { return }
+        guard let id = currentSpeakerID else { return }
         performCommand(successNotice: "Skipped back") {
-            try await speaker.previousTrack()
+            _ = try await self.commands.performPlayback(.previous, speakerID: id)
         }
     }
 
@@ -401,9 +472,9 @@ final class RemoteStore: ObservableObject {
             return
         }
 
-        guard let speaker else { return }
+        guard let id = currentSpeakerID else { return }
         performCommand(successNotice: willPlay ? "Playback resumed" : "Playback paused") {
-            try await speaker.togglePlayPause()
+            _ = try await self.commands.performPlayback(willPlay ? .play : .pause, speakerID: id)
         }
     }
 
@@ -414,9 +485,9 @@ final class RemoteStore: ObservableObject {
             return
         }
 
-        guard let speaker else { return }
+        guard let id = currentSpeakerID else { return }
         performCommand(successNotice: "Skipped forward") {
-            try await speaker.nextTrack()
+            _ = try await self.commands.performPlayback(.next, speakerID: id)
         }
     }
 
@@ -428,9 +499,9 @@ final class RemoteStore: ObservableObject {
             return
         }
 
-        guard canControlSpeaker, let speaker else { return }
+        guard canControlSpeaker, let id = currentSpeakerID else { return }
         performCommand(successNotice: "Source changed to \(newSource.displayName)") {
-            try await speaker.setSource(newSource)
+            _ = try await self.commands.setSource(newSource, speakerID: id)
         }
     }
 
@@ -444,14 +515,10 @@ final class RemoteStore: ObservableObject {
 
         guard connectionState == .connected,
               speakerStatus.allowsPowerToggle,
-              let speaker else { return }
+              let id = currentSpeakerID else { return }
         let shouldPowerOn = speakerStatus == .standby
         performCommand(successNotice: shouldPowerOn ? "Speaker is waking up" : "Speaker is in standby") {
-            if shouldPowerOn {
-                try await speaker.powerOn()
-            } else {
-                try await speaker.shutdown()
-            }
+            _ = try await self.commands.setPower(on: shouldPowerOn, speakerID: id)
         }
     }
 
@@ -469,8 +536,10 @@ final class RemoteStore: ObservableObject {
         speakerModel = snapshot.model
         speakerStatus = snapshot.status
         source = snapshot.source
-        volume = VolumePolicy.clampedVolume(snapshot.volume)
-        if volume > 0 { mutedRestoreVolume = nil }
+        if !isPreviewingVolume, !isAdjustingVolume {
+            volume = VolumePolicy.clampedVolume(snapshot.volume)
+            if volume > 0 { mutedRestoreVolume = nil }
+        }
         if snapshot.status != .powerOn || !snapshot.source.usesPlaybackStateForVolumeRouting {
             clearPlayerState()
         }
@@ -498,8 +567,10 @@ final class RemoteStore: ObservableObject {
                     : self.reconnectPolicy.delay(afterFailure: self.consecutiveFailures)
                 do {
                     try await self.sleep(delay)
+                    guard !Task.isCancelled, self.connectionGeneration == generation else { return }
                     let snapshot = try await speaker.getSnapshot()
-                    guard !Task.isCancelled else { return }
+                    guard !Task.isCancelled, self.connectionGeneration == generation,
+                          self.speaker === speaker else { return }
                     self.consecutiveFailures = 0
                     self.apply(snapshot)
                     self.connectionState = .connected
@@ -509,6 +580,8 @@ final class RemoteStore: ObservableObject {
                 } catch is CancellationError {
                     return
                 } catch {
+                    guard !Task.isCancelled, self.connectionGeneration == generation,
+                          self.speaker === speaker else { return }
                     self.consecutiveFailures += 1
                     self.connectionState = .reconnecting(attempt: self.consecutiveFailures)
                     self.lastError = self.message(for: error)
@@ -546,19 +619,31 @@ final class RemoteStore: ObservableObject {
         successNotice: String,
         action: @escaping @MainActor () async throws -> Void
     ) {
-        commandTask?.cancel()
+        guard let speaker else { return }
+        cancelCommand()
+        let generation = connectionGeneration
+        let commandID = commandGeneration
         isSendingCommand = true
         commandTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.isSendingCommand = false }
+            defer {
+                if self.commandGeneration == commandID {
+                    self.isSendingCommand = false
+                    self.commandTask = nil
+                }
+            }
 
             do {
+                try Task.checkCancellation()
                 try await action()
+                guard !Task.isCancelled, self.connectionGeneration == generation,
+                      self.commandGeneration == commandID, self.speaker === speaker else { return }
                 self.showNotice(successNotice)
-                guard let speaker = self.speaker else { return }
                 try await self.sleep(.milliseconds(350))
+                try Task.checkCancellation()
                 let snapshot = try await speaker.getSnapshot()
-                guard self.speaker === speaker else { return }
+                guard !Task.isCancelled, self.connectionGeneration == generation,
+                      self.commandGeneration == commandID, self.speaker === speaker else { return }
                 self.apply(snapshot)
                 self.connectionState = .connected
                 self.lastError = nil
@@ -566,9 +651,18 @@ final class RemoteStore: ObservableObject {
             } catch is CancellationError {
                 return
             } catch {
+                guard !Task.isCancelled, self.connectionGeneration == generation,
+                      self.commandGeneration == commandID, self.speaker === speaker else { return }
                 self.handleCommandFailure(error)
             }
         }
+    }
+
+    private func cancelCommand() {
+        commandGeneration += 1
+        commandTask?.cancel()
+        commandTask = nil
+        isSendingCommand = false
     }
 
     private func refreshPlayerState(
@@ -581,8 +675,11 @@ final class RemoteStore: ObservableObject {
             return
         }
 
+        let generation = connectionGeneration
         let playerState = try? await speaker.getPlayerState()
-        guard appIsActive, self.speaker === speaker else { return }
+        guard !Task.isCancelled, appIsActive, connectionGeneration == generation,
+              self.speaker === speaker, speakerStatus == .powerOn,
+              source == snapshot.source else { return }
 
         if let playerState {
             applyPlayerState(playerState)

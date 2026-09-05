@@ -6,6 +6,273 @@ import XCTest
 
 @MainActor
 final class MobileBehaviorTests: XCTestCase {
+    func testConcurrentServicesPreserveBothVolumeAdjustments() async throws {
+        let records = SpeakerRecordStore(defaults: makeDefaults())
+        _ = records.save(host: "speaker.local", macAddress: nil, snapshot: speakerSnapshot())
+        let speaker = StubSpeaker(snapshots: [.success(speakerSnapshot())])
+        let first = SpeakerCommandService(speakerRecords: records) { _ in speaker }
+        let second = SpeakerCommandService(speakerRecords: records) { _ in speaker }
+        async let a = first.adjustVolume(by: 5)
+        async let b = second.adjustVolume(by: 5)
+        _ = try await (a, b)
+        let volumes = await speaker.recordedVolumes()
+        XCTAssertEqual(volumes, [40, 45])
+    }
+
+    func testForegroundAndIntentShareVolumeOrderingAndMuteRestore() async throws {
+        let records = SpeakerRecordStore(defaults: makeDefaults())
+        let speaker = StubSpeaker(snapshots: [.success(speakerSnapshot())])
+        let store = RemoteStore(defaults: makeDefaults(), speakerRecords: records,
+                                pollingInterval: .seconds(60), clientFactory: { _ in speaker })
+        store.hardwareButtonsEnabled = false
+        defer { store.setAppActive(false) }
+        store.setAppActive(true)
+        store.connect(to: "speaker.local")
+        try await waitUntil { store.connectionState == .connected }
+        let intentService = SpeakerCommandService(speakerRecords: records) { _ in speaker }
+        store.adjustVolume(direction: 1)
+        _ = try await intentService.adjustVolume(by: 5)
+        try await waitUntil { !store.isAdjustingVolume }
+        let beforeMute = await speaker.recordedVolumes()
+        XCTAssertEqual(beforeMute, [40, 45])
+        _ = try await intentService.setMuted(true)
+        store.toggleMute()
+        try await waitUntil { !store.isAdjustingVolume }
+        let volumes = await speaker.recordedVolumes()
+        XCTAssertEqual(volumes, [40, 45, 0, 45])
+    }
+
+    func testQueuedCommandCancellationDoesNotWriteOrBlockNextCommand() async throws {
+        let records = SpeakerRecordStore(defaults: makeDefaults())
+        _ = records.save(host: "speaker.local", macAddress: nil, snapshot: speakerSnapshot())
+        let started = expectation(description: "First write started")
+        let gate = CommandGate()
+        let speaker = StubSpeaker(snapshots: [.success(speakerSnapshot())], writeOperation: {
+            started.fulfill()
+            await gate.wait()
+        })
+        let service = SpeakerCommandService(speakerRecords: records) { _ in speaker }
+        let first = Task { try await service.setVolume(60) }
+        await fulfillment(of: [started], timeout: 1)
+        let cancelled = Task { try await service.setVolume(90) }
+        cancelled.cancel()
+        do { _ = try await cancelled.value; XCTFail("Expected cancellation") }
+        catch is CancellationError {}
+        await gate.resume()
+        _ = try await first.value
+        let volumes = await speaker.recordedVolumes()
+        XCTAssertEqual(volumes, [60])
+        let status = try await service.status()
+        XCTAssertEqual(status.volume, 60)
+    }
+
+    func testCommandDeadlineCancelsSlowRead() async throws {
+        let records = SpeakerRecordStore(defaults: makeDefaults())
+        _ = records.save(host: "speaker.local", macAddress: nil, snapshot: speakerSnapshot())
+        let speaker = StubSpeaker(snapshots: [], readDelay: .seconds(60))
+        let service = SpeakerCommandService(speakerRecords: records, clientFactory: { _ in speaker },
+                                            timing: SpeakerCommandTimingPolicy(commandTimeout: .milliseconds(30)))
+        let started = ContinuousClock.now
+        do { _ = try await service.setVolume(90); XCTFail("Expected timeout") }
+        catch { XCTAssertEqual(error as? SpeakerCommandError, .timedOut) }
+        XCTAssertLessThan(started.duration(to: .now), .seconds(1))
+        let volumes = await speaker.recordedVolumes()
+        XCTAssertTrue(volumes.isEmpty)
+    }
+
+    func testForgetRemovesOnlySelectedSpeakerAndRepairsDefault() async throws {
+        let defaults = makeDefaults()
+        let records = SpeakerRecordStore(defaults: defaults)
+        let other = try XCTUnwrap(records.save(host: "other.local", macAddress: nil, snapshot: speakerSnapshot(name: "Office")))
+        let selected = try XCTUnwrap(records.save(host: "selected.local", macAddress: nil, snapshot: speakerSnapshot()))
+        let speaker = StubSpeaker(snapshots: [.success(speakerSnapshot())])
+        let store = RemoteStore(defaults: defaults, speakerRecords: records, pollingInterval: .seconds(60), clientFactory: { _ in speaker })
+        store.hardwareButtonsEnabled = false
+        defer { store.setAppActive(false) }
+        store.setAppActive(true)
+        try await waitUntil { store.connectionState == .connected }
+        store.disconnect(forget: true)
+        XCTAssertNil(records.speaker(id: selected.id))
+        XCTAssertEqual(records.allSpeakers().map(\.id), [other.id])
+        XCTAssertEqual(records.defaultSpeaker()?.id, other.id)
+    }
+
+    func testDifferentMACAtSameAddressDoesNotStealShortcutIdentity() throws {
+        let records = SpeakerRecordStore(defaults: makeDefaults())
+        let original = try XCTUnwrap(records.save(host: "speaker.local", macAddress: "AA:BB:CC:DD:EE:FF", snapshot: speakerSnapshot()))
+        let replacement = try XCTUnwrap(records.save(host: "speaker.local", macAddress: "11:22:33:44:55:66", snapshot: speakerSnapshot()))
+        XCTAssertNotEqual(original.id, replacement.id)
+        XCTAssertEqual(records.speaker(id: original.id)?.requiresReconfirmation, true)
+        XCTAssertEqual(records.speaker(id: original.id)?.macAddress, original.macAddress)
+    }
+
+    func testChangedSpeakerIdentityRejectsCommandsBeforeWriting() async throws {
+        let records = SpeakerRecordStore(defaults: makeDefaults())
+        _ = records.save(host: "speaker.local", macAddress: nil, snapshot: speakerSnapshot())
+        let replacement = StubSpeaker(snapshots: [.success(speakerSnapshot(name: "Different speaker"))])
+        let service = SpeakerCommandService(speakerRecords: records) { _ in replacement }
+        do { _ = try await service.setVolume(90); XCTFail("Expected identity mismatch") }
+        catch { XCTAssertEqual(error as? SpeakerCommandError, .speakerIdentityChanged) }
+        let volumes = await replacement.recordedVolumes()
+        XCTAssertTrue(volumes.isEmpty)
+    }
+
+    func testChangingOrForgettingSpeakerDuringReadPreventsWrite() async throws {
+        for forget in [false, true] {
+            let records = SpeakerRecordStore(defaults: makeDefaults())
+            let saved = try XCTUnwrap(records.save(host: "old.local", macAddress: "AA:BB:CC:DD:EE:FF", snapshot: speakerSnapshot()))
+            let started = expectation(description: "Snapshot read started")
+            let gate = CommandGate()
+            let speaker = StubSpeaker(snapshots: [.success(speakerSnapshot())], readOperation: {
+                started.fulfill()
+                await gate.wait()
+            })
+            let service = SpeakerCommandService(speakerRecords: records) { _ in speaker }
+            let command = Task { try await service.setVolume(90, speakerID: saved.id) }
+            await fulfillment(of: [started], timeout: 1)
+            if forget {
+                records.remove(id: saved.id)
+            } else {
+                _ = records.save(host: "new.local", macAddress: saved.macAddress, snapshot: speakerSnapshot())
+            }
+            await gate.resume()
+            do { _ = try await command.value; XCTFail("Changed target must not receive a write") }
+            catch { XCTAssertEqual(error as? SpeakerCommandError, forget ? .speakerNotFound : .speakerIdentityChanged) }
+            let volumes = await speaker.recordedVolumes()
+            XCTAssertTrue(volumes.isEmpty)
+        }
+    }
+
+    func testPollingDoesNotOverwriteSliderPreview() async throws {
+        let speaker = StubSpeaker(snapshots: [.success(speakerSnapshot())])
+        let store = RemoteStore(
+            defaults: makeDefaults(), pollingInterval: .seconds(60),
+            clientFactory: { _ in speaker }
+        )
+        store.hardwareButtonsEnabled = false
+        defer { store.setAppActive(false) }
+        store.setAppActive(true)
+        store.connect(to: "speaker.local")
+        try await waitUntil { store.connectionState == .connected }
+        store.previewVolume(67)
+        store.apply(speakerSnapshot(volume: 35))
+        XCTAssertEqual(store.volume, 67)
+        store.commitPreviewedVolume()
+        try await waitUntil { !store.isAdjustingVolume }
+        let volumes = await speaker.recordedVolumes()
+        XCTAssertEqual(volumes, [67])
+    }
+
+    func testPowerCommandsRespectFirmwareAndSetupStates() async throws {
+        for status in [SpeakerStatus.firmwareUpgrade, .networkSetup, .unknown("calibrating")] {
+            let defaults = makeDefaults()
+            _ = SpeakerRecordStore(defaults: defaults).save(host: "speaker.local", macAddress: nil, snapshot: speakerSnapshot(status: status))
+            let speaker = StubSpeaker(snapshots: [.success(speakerSnapshot(status: status))])
+            let service = SpeakerCommandService(defaults: defaults) { _ in speaker }
+            do {
+                _ = try await service.setPower(on: true)
+                XCTFail("Expected power controls to be unavailable")
+            } catch {
+                XCTAssertEqual(error as? SpeakerCommandError, .powerUnavailable)
+            }
+            let commands = await speaker.recordedPowerCommands()
+            XCTAssertTrue(commands.isEmpty)
+        }
+    }
+
+    func testCancelledVolumeWriteDoesNotReportLateFailure() async throws {
+        let started = expectation(description: "Volume write started")
+        let finished = expectation(description: "Old write returned")
+        let gate = CommandGate()
+        let speaker = StubSpeaker(snapshots: [.success(speakerSnapshot())], writeOperation: {
+            started.fulfill()
+            await gate.wait()
+            finished.fulfill()
+            throw URLError(.cancelled)
+        })
+        let store = RemoteStore(defaults: makeDefaults(), pollingInterval: .seconds(60), clientFactory: { _ in speaker })
+        store.hardwareButtonsEnabled = false
+        defer { store.setAppActive(false) }
+        store.setAppActive(true)
+        store.connect(to: "speaker.local")
+        try await waitUntil { store.connectionState == .connected }
+        store.setVolume(40)
+        await fulfillment(of: [started], timeout: 1)
+        store.disconnect()
+        await gate.resume()
+        await fulfillment(of: [finished], timeout: 1)
+        XCTAssertNil(store.lastError)
+        XCTAssertFalse(store.isAdjustingVolume)
+        XCTAssertEqual(store.connectionState, .disconnected)
+    }
+
+    func testLateCommandFailureDoesNotDisconnectNewSpeaker() async throws {
+        let started = expectation(description: "Source command started")
+        let finished = expectation(description: "Old command returned")
+        let gate = CommandGate()
+        let old = StubSpeaker(snapshots: [.success(speakerSnapshot())], writeOperation: {
+            started.fulfill()
+            await gate.wait()
+            finished.fulfill()
+            throw URLError(.networkConnectionLost)
+        })
+        let new = StubSpeaker(snapshots: [.success(speakerSnapshot(name: "Office"))])
+        let store = RemoteStore(
+            defaults: makeDefaults(), pollingInterval: .seconds(60),
+            clientFactory: { $0 == "old.local" ? old : new }
+        )
+        store.hardwareButtonsEnabled = false
+        defer { store.setAppActive(false) }
+        store.setAppActive(true)
+        store.connect(to: "old.local")
+        try await waitUntil { store.connectionState == .connected }
+        store.setSource(.tv)
+        await fulfillment(of: [started], timeout: 1)
+        store.connect(to: "new.local")
+        try await waitUntil { store.speakerName == "Office" }
+        XCTAssertFalse(store.isSendingCommand)
+        await gate.resume()
+        await fulfillment(of: [finished], timeout: 1)
+        // Let the cancelled worker handle the error before inspecting state.
+        try await Task.sleep(for: .milliseconds(20))
+        XCTAssertEqual(store.connectionState, .connected)
+        XCTAssertEqual(store.currentHost, "new.local")
+        XCTAssertNil(store.lastError)
+    }
+
+    func testSpeakerCommandServiceBoundsExtremeAdjustments() async throws {
+        let defaults = makeDefaults()
+        _ = SpeakerRecordStore(defaults: defaults).save(host: "speaker.local", macAddress: nil, snapshot: speakerSnapshot())
+        let speaker = StubSpeaker(snapshots: [
+            .success(speakerSnapshot(volume: 35)), .success(speakerSnapshot(volume: 35))
+        ])
+        let service = SpeakerCommandService(defaults: defaults) { _ in speaker }
+        let raised = try await service.adjustVolume(by: Int.max)
+        let lowered = try await service.adjustVolume(by: Int.min)
+        XCTAssertEqual(raised.volume, 100)
+        XCTAssertEqual(lowered.volume, 0)
+    }
+
+    func testCancelledNetworkReadDoesNotRetryOrWakeSpeaker() async throws {
+        let records = SpeakerRecordStore(defaults: makeDefaults())
+        _ = records.save(host: "speaker.local", macAddress: "AA:BB:CC:DD:EE:FF", snapshot: speakerSnapshot())
+        let speaker = StubSpeaker(snapshots: [.failure(.cancelled)])
+        let wakeRecorder = WakeRecorder()
+        let service = SpeakerCommandService(
+            speakerRecords: records, clientFactory: { _ in speaker },
+            sleep: { _ in }, wakeSender: { wakeRecorder.record($0); return true }
+        )
+        do {
+            _ = try await service.setPower(on: true)
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // URLSession cancellation must retain its meaning through the service.
+        }
+        let reads = await speaker.snapshotReadCount()
+        XCTAssertEqual(reads, 1)
+        XCTAssertTrue(wakeRecorder.addresses.isEmpty)
+    }
+
     func testOutputVolumeInterpreterInfersBothDirections() {
         var interpreter = OutputVolumeChangeInterpreter(initialVolume: 0.5)
 
@@ -37,21 +304,22 @@ final class MobileBehaviorTests: XCTestCase {
         XCTAssertFalse(VolumeHapticPolicy.crossesLandmark(from: 50, to: 51))
     }
 
-    func testRapidVolumeCommandsCoalesceToLatestValue() async {
-        let speaker = StubSpeaker(snapshots: [])
-        let dispatcher = VolumeCommandDispatcher(
-            debounce: .zero,
-            sleep: { _ in await Task.yield() }
-        )
-        let sent = expectation(description: "Latest volume sent")
-
-        dispatcher.submit(20, to: speaker) { _ in sent.fulfill() }
-        dispatcher.submit(25, to: speaker) { _ in sent.fulfill() }
-        dispatcher.submit(30, to: speaker) { _ in sent.fulfill() }
-
-        await fulfillment(of: [sent], timeout: 1)
-        let recordedVolumes = await speaker.recordedVolumes()
-        XCTAssertEqual(recordedVolumes, [30])
+    func testRapidAbsoluteAndRelativeVolumeCommandsPreserveTapOrder() async throws {
+        let speaker = StubSpeaker(snapshots: [.success(speakerSnapshot())])
+        let store = RemoteStore(defaults: makeDefaults(), pollingInterval: .seconds(60), clientFactory: { _ in speaker })
+        store.hardwareButtonsEnabled = false
+        defer { store.setAppActive(false) }
+        store.setAppActive(true)
+        store.connect(to: "speaker.local")
+        try await waitUntil { store.connectionState == .connected }
+        store.setVolume(20)
+        store.adjustVolume(direction: 1)
+        store.setVolume(60)
+        store.adjustVolume(direction: -1)
+        try await waitUntil { !store.isAdjustingVolume }
+        let volumes = await speaker.recordedVolumes()
+        XCTAssertEqual(volumes, [20, 25, 60, 55])
+        XCTAssertEqual(store.volume, 55)
     }
 
     func testReconnectPolicyBacksOffAndCaps() {
@@ -247,6 +515,28 @@ final class MobileBehaviorTests: XCTestCase {
         XCTAssertTrue(defaults.bool(forKey: SpeakerPreferenceKeys.mutePhoneOnExit))
     }
 
+    func testSharedDefaultsMigrationPreservesExistingSharedPreferences() {
+        let source = makeDefaults()
+        let destination = makeDefaults()
+        source.set("192.168.1.60", forKey: SpeakerPreferenceKeys.savedHost)
+        source.set(7, forKey: SpeakerPreferenceKeys.volumeStep)
+        source.set(true, forKey: SpeakerPreferenceKeys.hardwareButtonsEnabled)
+        destination.set(9, forKey: SpeakerPreferenceKeys.volumeStep)
+
+        AmpestraSharedDefaults.migrateFromStandardDefaultsIfNeeded(
+            from: source,
+            to: destination
+        )
+
+        XCTAssertEqual(
+            destination.string(forKey: SpeakerPreferenceKeys.savedHost),
+            "192.168.1.60"
+        )
+        XCTAssertEqual(destination.integer(forKey: SpeakerPreferenceKeys.volumeStep), 9)
+        XCTAssertTrue(destination.bool(forKey: SpeakerPreferenceKeys.hardwareButtonsEnabled))
+        XCTAssertTrue(destination.bool(forKey: AmpestraSharedDefaults.migrationKey))
+    }
+
     func testPermissionDenialProducesActionableState() {
         let store = RemoteStore(defaults: makeDefaults())
 
@@ -267,7 +557,7 @@ final class MobileBehaviorTests: XCTestCase {
         )
         let speaker = StubSpeaker(snapshots: [.success(snapshot)])
         let defaults = makeDefaults()
-        defaults.set(speaker.host, forKey: SpeakerPreferenceKeys.savedHost)
+        _ = SpeakerRecordStore(defaults: defaults).save(host: speaker.host, macAddress: nil, snapshot: snapshot)
         let service = SpeakerCommandService(defaults: defaults) { _ in speaker }
 
         let confirmation = try await service.adjustVolume(by: 5)
@@ -287,7 +577,7 @@ final class MobileBehaviorTests: XCTestCase {
         )
         let speaker = StubSpeaker(snapshots: [.success(snapshot)])
         let defaults = makeDefaults()
-        defaults.set(speaker.host, forKey: SpeakerPreferenceKeys.savedHost)
+        _ = SpeakerRecordStore(defaults: defaults).save(host: speaker.host, macAddress: nil, snapshot: snapshot)
         let service = SpeakerCommandService(defaults: defaults) { _ in speaker }
 
         let confirmation = try await service.setSource(.tv)
@@ -318,7 +608,7 @@ final class MobileBehaviorTests: XCTestCase {
         )
         let speaker = StubSpeaker(snapshots: [.success(snapshot)])
         let defaults = makeDefaults()
-        defaults.set(speaker.host, forKey: SpeakerPreferenceKeys.savedHost)
+        _ = SpeakerRecordStore(defaults: defaults).save(host: speaker.host, macAddress: nil, snapshot: snapshot)
         let service = SpeakerCommandService(defaults: defaults) { _ in speaker }
 
         let confirmation = try await service.setPower(on: true)
@@ -364,7 +654,7 @@ final class MobileBehaviorTests: XCTestCase {
 
         XCTAssertEqual(moved.id, first.id)
         XCTAssertEqual(moved.host, "living-room.local")
-        XCTAssertEqual(moved.alternateHosts, ["192.168.1.60"])
+        XCTAssertEqual(moved.alternateHosts, [])
         XCTAssertEqual(records.allSpeakers().count, 1)
     }
 
@@ -462,21 +752,14 @@ final class MobileBehaviorTests: XCTestCase {
         XCTAssertEqual(readCount, 2)
     }
 
-    func testSpeakerCommandServiceFallsBackToPreviousAddress() async throws {
-        let records = SpeakerRecordStore(defaults: makeDefaults())
+    func testSpeakerCommandServiceDoesNotContactHistoricalAddress() async throws {
+        let defaults = makeDefaults()
+        let records = SpeakerRecordStore(defaults: defaults)
         let snapshot = speakerSnapshot()
-        let first = try XCTUnwrap(
-            records.save(
-                host: "192.168.1.60",
-                macAddress: "AA:BB:CC:DD:EE:FF",
-                snapshot: snapshot
-            )
-        )
-        _ = records.save(
-            host: "living-room.local",
-            macAddress: "AA:BB:CC:DD:EE:FF",
-            snapshot: snapshot
-        )
+        var first = try XCTUnwrap(records.save(host: "living-room.local", macAddress: "AA:BB:CC:DD:EE:FF", snapshot: snapshot))
+        // Exercise records persisted by older builds, including a stale DHCP IP.
+        first.alternateHosts = ["192.168.1.60"]
+        defaults.set(try JSONEncoder().encode([first]), forKey: SpeakerPreferenceKeys.savedSpeakers)
         let unavailable = StubSpeaker(snapshots: [.failure(.unreachable)])
         let reachable = StubSpeaker(snapshots: [.success(snapshot)])
         let timing = SpeakerCommandTimingPolicy(
@@ -493,14 +776,18 @@ final class MobileBehaviorTests: XCTestCase {
             sleep: { _ in }
         )
 
-        let confirmation = try await service.status(speakerID: first.id)
+        do {
+            _ = try await service.status(speakerID: first.id)
+            XCTFail("Historical addresses must not be used automatically")
+        } catch {
+            XCTAssertEqual(error as? SpeakerCommandError, .unreachable)
+        }
         let unavailableReads = await unavailable.snapshotReadCount()
         let reachableReads = await reachable.snapshotReadCount()
 
-        XCTAssertEqual(confirmation.speakerID, first.id)
-        XCTAssertEqual(records.speaker(id: first.id)?.host, "192.168.1.60")
+        XCTAssertEqual(records.speaker(id: first.id)?.host, "living-room.local")
         XCTAssertEqual(unavailableReads, 1)
-        XCTAssertEqual(reachableReads, 1)
+        XCTAssertEqual(reachableReads, 0)
     }
 
     func testSpeakerCommandServiceUsesWakeOnLANWhenSpeakerIsOffline() async throws {
@@ -625,6 +912,7 @@ final class MobileBehaviorTests: XCTestCase {
 private actor StubSpeaker: KEFSpeakerClient {
     enum StubFailure: Error {
         case unreachable
+        case cancelled
     }
 
     enum SnapshotResult {
@@ -635,32 +923,46 @@ private actor StubSpeaker: KEFSpeakerClient {
     nonisolated let host: String
     private var snapshots: [SnapshotResult]
     private var snapshotReads = 0
+    private var lastSnapshot = SpeakerSnapshot(status: .powerOn, source: .wifi, volume: 30, name: "Test", model: "LS60")
     private let playerState: PlayerState
     private var volumes: [Int] = []
     private var sources: [SpeakerSource] = []
     private var powerCommands: [Bool] = []
     private var playbackCommands: [String] = []
+    private let readDelay: Duration
+    private let readOperation: (@Sendable () async throws -> Void)?
+    private let writeOperation: (@Sendable () async throws -> Void)?
 
     init(
         host: String = "192.168.1.99",
         snapshots: [SnapshotResult],
-        playerState: PlayerState = PlayerState(isPlaying: false, nowPlaying: NowPlayingInfo())
+        playerState: PlayerState = PlayerState(isPlaying: false, nowPlaying: NowPlayingInfo()),
+        writeOperation: (@Sendable () async throws -> Void)? = nil,
+        readDelay: Duration = .zero,
+        readOperation: (@Sendable () async throws -> Void)? = nil
     ) {
         self.host = host
         self.snapshots = snapshots
         self.playerState = playerState
+        self.writeOperation = writeOperation
+        self.readDelay = readDelay
+        self.readOperation = readOperation
     }
 
     func getSnapshot() async throws -> SpeakerSnapshot {
+        try await readOperation?()
+        if readDelay != .zero { try await Task.sleep(for: readDelay) }
         snapshotReads += 1
         guard !snapshots.isEmpty else {
-            return SpeakerSnapshot(status: .powerOn, source: .wifi, volume: 30, name: "Test", model: "LS60")
+            return lastSnapshot
         }
 
         switch snapshots.removeFirst() {
         case .success(let snapshot):
+            lastSnapshot = snapshot
             return snapshot
         case .failure(let error):
+            if error == .cancelled { throw URLError(.cancelled) }
             throw error
         }
     }
@@ -675,10 +977,12 @@ private actor StubSpeaker: KEFSpeakerClient {
     func getNowPlayingInfo() async throws -> NowPlayingInfo { playerState.nowPlaying }
 
     func setVolume(_ volume: Int) async throws {
+        try await writeOperation?()
         volumes.append(volume)
     }
 
     func setSource(_ source: SpeakerSource) async throws {
+        try await writeOperation?()
         sources.append(source)
     }
 
@@ -708,6 +1012,22 @@ private actor StubSpeaker: KEFSpeakerClient {
     func recordedPowerCommands() -> [Bool] { powerCommands }
     func recordedPlaybackCommands() -> [String] { playbackCommands }
     func snapshotReadCount() -> Int { snapshotReads }
+}
+
+private actor CommandGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var resumed = false
+
+    func wait() async {
+        if resumed { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func resume() {
+        resumed = true
+        continuation?.resume()
+        continuation = nil
+    }
 }
 
 private final class WakeRecorder: @unchecked Sendable {

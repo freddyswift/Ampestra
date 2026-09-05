@@ -1,5 +1,6 @@
 import AppIntents
 import SwiftUI
+import WidgetKit
 
 @main
 struct AmpestraMobileApp: App {
@@ -7,6 +8,10 @@ struct AmpestraMobileApp: App {
     @StateObject private var store: RemoteStore
 
     init() {
+        if AmpestraSharedDefaults.migrateFromStandardDefaultsIfNeeded() {
+            WidgetCenter.shared.reloadTimelines(ofKind: AmpestraWidgetConstants.controlsKind)
+        }
+        let defaults = AmpestraSharedDefaults.shared
         let speakerRecords = SpeakerRecordStore.shared
         let speakerCommands = SpeakerCommandService(speakerRecords: speakerRecords)
 
@@ -15,7 +20,10 @@ struct AmpestraMobileApp: App {
         AmpestraShortcuts.updateAppShortcutParameters()
 
         _store = StateObject(
-            wrappedValue: RemoteStore(speakerRecords: speakerRecords)
+            wrappedValue: RemoteStore(
+                defaults: defaults,
+                speakerRecords: speakerRecords
+            )
         )
     }
 

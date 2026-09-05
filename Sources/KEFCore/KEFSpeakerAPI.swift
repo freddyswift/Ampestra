@@ -42,6 +42,7 @@ public final class KEFSpeakerAPI: Sendable {
         "LSX2LT": "LSXIILT",
     ]
     public static let maximumResponseByteCount = 512 * 1_024
+    public static let responseTimeout: TimeInterval = 8
 
     public let host: String
     private let session: URLSession
@@ -58,9 +59,17 @@ public final class KEFSpeakerAPI: Sendable {
         self.session = session
     }
 
-    public static func makeDefaultSession(configuration: URLSessionConfiguration = .ephemeral) -> URLSession {
+    deinit {
+        session.invalidateAndCancel()
+    }
+
+    public static func makeDefaultSession(
+        configuration: URLSessionConfiguration = .ephemeral,
+        resourceTimeout: TimeInterval = responseTimeout
+    ) -> URLSession {
         let config = configuration
         config.timeoutIntervalForRequest = 5
+        config.timeoutIntervalForResource = max(0.1, resourceTimeout)
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         config.urlCache = nil
         return URLSession(
@@ -138,12 +147,14 @@ public final class KEFSpeakerAPI: Sendable {
 
     private func data(from url: URL) async throws -> Data {
         let (bytes, response) = try await session.bytes(from: url)
+        defer { bytes.task.cancel() }
         try validateHTTPResponse(response)
         return try await Self.collect(bytes, maximumByteCount: Self.maximumResponseByteCount)
     }
 
     private func data(for request: URLRequest) async throws -> Data {
         let (bytes, response) = try await session.bytes(for: request)
+        defer { bytes.task.cancel() }
         try validateHTTPResponse(response)
         return try await Self.collect(bytes, maximumByteCount: Self.maximumResponseByteCount)
     }
