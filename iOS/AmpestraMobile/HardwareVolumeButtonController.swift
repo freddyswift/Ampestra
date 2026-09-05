@@ -66,6 +66,10 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
     }
 
     func stop(mutePhone: Bool = false) {
+        // Snapshot polling may repeatedly ask an already stopped controller to stop.
+        // Avoid publishing state and queueing redundant audio-session deactivations.
+        guard wantsCapture || isCapturing || isActivating || isInterrupted
+                || originalVolume != nil || mutePhone else { return }
         wantsCapture = false
         isInterrupted = false
         activationRequestID &+= 1

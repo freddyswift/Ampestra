@@ -10,8 +10,11 @@ import Foundation
 final class SpeakerPollingController {
     private var pollTask: Task<Void, Never>?
     private var playbackStateTask: Task<Void, Never>?
-    private var isRefreshInFlight = false
-    private var isPlaybackStateRefreshInFlight = false
+
+    deinit {
+        pollTask?.cancel()
+        playbackStateTask?.cancel()
+    }
 
     func start(
         refresh: @escaping @MainActor () async -> Void,
@@ -24,10 +27,7 @@ final class SpeakerPollingController {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3))
                 guard !Task.isCancelled else { break }
-                guard !isRefreshInFlight else { continue }
-                isRefreshInFlight = true
                 await refresh()
-                isRefreshInFlight = false
             }
         }
 
@@ -37,10 +37,7 @@ final class SpeakerPollingController {
                 try? await Task.sleep(for: pollingIsNeeded ? .milliseconds(750) : .seconds(3))
                 guard !Task.isCancelled else { break }
                 guard pollingIsNeeded else { continue }
-                guard !isPlaybackStateRefreshInFlight else { continue }
-                isPlaybackStateRefreshInFlight = true
                 await refreshPlaybackStateForVolumeRouting()
-                isPlaybackStateRefreshInFlight = false
             }
         }
     }
@@ -50,7 +47,5 @@ final class SpeakerPollingController {
         pollTask = nil
         playbackStateTask?.cancel()
         playbackStateTask = nil
-        isRefreshInFlight = false
-        isPlaybackStateRefreshInFlight = false
     }
 }

@@ -6,6 +6,84 @@ import XCTest
 
 @MainActor
 final class MobileBehaviorTests: XCTestCase {
+    func testManualRefreshBurstSharesRequestWithPolling() async throws {
+        let speaker = StubSpeaker(snapshots: [
+            .success(speakerSnapshot()), .success(speakerSnapshot(volume: 50)),
+        ])
+        let store = RemoteStore(defaults: makeDefaults(), pollingInterval: .milliseconds(20),
+                                clientFactory: { _ in speaker })
+        store.hardwareButtonsEnabled = false
+        defer { store.setAppActive(false) }
+        store.setAppActive(true)
+        store.connect(to: "speaker.local")
+        try await waitUntil { store.connectionState == .connected }
+
+        let gate = CommandGate()
+        await speaker.setReadOperation { await gate.wait() }
+        for _ in 0..<20 { store.refreshNow() }
+        // Allow multiple polling intervals to elapse while the read is suspended.
+        try await Task.sleep(for: .milliseconds(100))
+        let attempts = await speaker.snapshotAttemptCount()
+        await gate.resume()
+        XCTAssertEqual(attempts, 2, "Connection plus one shared refresh")
+        try await waitUntil { store.volume == 50 }
+    }
+
+    func testBackgroundingCancelsManualRefresh() async throws {
+        let speaker = StubSpeaker(snapshots: [.success(speakerSnapshot())])
+        let store = RemoteStore(defaults: makeDefaults(), pollingInterval: .seconds(60),
+                                clientFactory: { _ in speaker })
+        store.hardwareButtonsEnabled = false
+        defer { store.setAppActive(false) }
+        store.setAppActive(true)
+        store.connect(to: "speaker.local")
+        try await waitUntil { store.connectionState == .connected }
+
+        let started = expectation(description: "Refresh started")
+        let cancelled = expectation(description: "Refresh cancelled")
+        await speaker.setReadOperation {
+            started.fulfill()
+            do {
+                try await Task.sleep(for: .seconds(60))
+            } catch {
+                cancelled.fulfill()
+                throw error
+            }
+        }
+        store.refreshNow()
+        await fulfillment(of: [started], timeout: 1)
+        store.setAppActive(false)
+        await fulfillment(of: [cancelled], timeout: 1)
+        XCTAssertNil(store.lastError)
+    }
+
+    func testUnchangedSnapshotDoesNotPublishRemoteState() {
+        let store = RemoteStore(defaults: makeDefaults())
+        let snapshot = speakerSnapshot()
+        store.apply(snapshot)
+        var changes = 0
+        let observation = store.objectWillChange.sink { changes += 1 }
+        defer { observation.cancel() }
+
+        store.apply(snapshot)
+        XCTAssertEqual(changes, 0)
+        var changed = snapshot
+        changed.volume += 1
+        store.apply(changed)
+        XCTAssertEqual(changes, 1)
+        XCTAssertEqual(store.volume, changed.volume)
+    }
+
+    func testStoppingInactiveHardwareCaptureDoesNotPublishChanges() {
+        let controller = HardwareVolumeButtonController()
+        var changes = 0
+        let observation = controller.objectWillChange.sink { changes += 1 }
+        defer { observation.cancel() }
+        controller.stop()
+        controller.stop()
+        XCTAssertEqual(changes, 0)
+    }
+
     func testConcurrentServicesPreserveBothVolumeAdjustments() async throws {
         let records = SpeakerRecordStore(defaults: makeDefaults())
         _ = records.save(host: "speaker.local", macAddress: nil, snapshot: speakerSnapshot())
@@ -922,6 +1000,7 @@ private actor StubSpeaker: KEFSpeakerClient {
 
     nonisolated let host: String
     private var snapshots: [SnapshotResult]
+    private var snapshotAttempts = 0
     private var snapshotReads = 0
     private var lastSnapshot = SpeakerSnapshot(status: .powerOn, source: .wifi, volume: 30, name: "Test", model: "LS60")
     private let playerState: PlayerState
@@ -930,7 +1009,7 @@ private actor StubSpeaker: KEFSpeakerClient {
     private var powerCommands: [Bool] = []
     private var playbackCommands: [String] = []
     private let readDelay: Duration
-    private let readOperation: (@Sendable () async throws -> Void)?
+    private var readOperation: (@Sendable () async throws -> Void)?
     private let writeOperation: (@Sendable () async throws -> Void)?
 
     init(
@@ -949,7 +1028,14 @@ private actor StubSpeaker: KEFSpeakerClient {
         self.readOperation = readOperation
     }
 
+    func setReadOperation(_ operation: @escaping @Sendable () async throws -> Void) {
+        readOperation = operation
+    }
+
+    func snapshotAttemptCount() -> Int { snapshotAttempts }
+
     func getSnapshot() async throws -> SpeakerSnapshot {
+        snapshotAttempts += 1
         try await readOperation?()
         if readDelay != .zero { try await Task.sleep(for: readDelay) }
         snapshotReads += 1
@@ -1015,18 +1101,18 @@ private actor StubSpeaker: KEFSpeakerClient {
 }
 
 private actor CommandGate {
-    private var continuation: CheckedContinuation<Void, Never>?
+    private var continuations: [CheckedContinuation<Void, Never>] = []
     private var resumed = false
 
     func wait() async {
         if resumed { return }
-        await withCheckedContinuation { continuation = $0 }
+        await withCheckedContinuation { continuations.append($0) }
     }
 
     func resume() {
         resumed = true
-        continuation?.resume()
-        continuation = nil
+        continuations.forEach { $0.resume() }
+        continuations.removeAll()
     }
 }
 

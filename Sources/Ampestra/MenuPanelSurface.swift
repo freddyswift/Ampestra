@@ -25,10 +25,8 @@ enum PanelColors {
     static let background = Color(nsColor: .controlBackgroundColor)
     static let sectionFill = Color(nsColor: .controlBackgroundColor)
     static let sectionStroke = Color(nsColor: .separatorColor)
-    static let controlFill = Color(nsColor: .controlBackgroundColor)
     static let rowFill = Color(nsColor: .separatorColor).opacity(0.07)
     static let secondaryText = Color(nsColor: .secondaryLabelColor)
-    static let tertiaryText = Color(nsColor: .tertiaryLabelColor)
 }
 
 /// A quiet content layer for grouped controls inside the glass menu panel.
@@ -90,43 +88,6 @@ struct PanelSolidCardBackground<BackgroundShape: InsettableShape>: ViewModifier 
     }
 }
 
-struct PanelFloatingGlassBackground<BackgroundShape: InsettableShape>: ViewModifier {
-    let shape: BackgroundShape
-    let fillOpacity: Double
-    let strokeOpacity: Double
-
-    func body(content: Content) -> some View {
-        glassOrMaterial(content: content)
-            .overlay {
-                shape
-                    .strokeBorder(Color(nsColor: .separatorColor).opacity(strokeOpacity), lineWidth: 1)
-            }
-    }
-
-    @ViewBuilder
-    private func glassOrMaterial(content: Content) -> some View {
-        #if compiler(>=6.2)
-        if #available(macOS 26.0, *) {
-            content
-                .glassEffect(.regular, in: shape)
-        } else {
-            materialFallback(content: content)
-        }
-        #else
-        materialFallback(content: content)
-        #endif
-    }
-
-    private func materialFallback(content: Content) -> some View {
-        content
-            .background(.regularMaterial, in: shape)
-            .background(
-                shape
-                    .fill(PanelColors.background.opacity(fillOpacity))
-            )
-    }
-}
-
 extension View {
     func panelGroupedBackground<BackgroundShape: InsettableShape>(
         _ shape: BackgroundShape,
@@ -157,16 +118,6 @@ extension View {
         strokeOpacity: Double = 0.22
     ) -> some View {
         modifier(PanelSolidCardBackground(shape: shape, fillOpacity: fillOpacity, strokeOpacity: strokeOpacity))
-    }
-
-    /// Native glass for small floating controls and badges. Avoid using this
-    /// for large content sections where repeated glass surfaces get visually noisy.
-    func panelFloatingGlassBackground<BackgroundShape: InsettableShape>(
-        _ shape: BackgroundShape,
-        fillOpacity: Double = 0.14,
-        strokeOpacity: Double = 0.16
-    ) -> some View {
-        modifier(PanelFloatingGlassBackground(shape: shape, fillOpacity: fillOpacity, strokeOpacity: strokeOpacity))
     }
 
     /// Uses native glass styling for compact floating action buttons on newer

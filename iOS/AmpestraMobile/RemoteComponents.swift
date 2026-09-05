@@ -3,17 +3,12 @@ import SwiftUI
 enum AmpestraTheme {
     static let accent = Color.accentColor
     static let accentBright = Color.accentColor
-    static let blue = Color.accentColor
     static let onAccent = Color(uiColor: .systemBackground)
     static let background = Color(uiColor: .systemGroupedBackground)
     static let surface = Color(uiColor: .secondarySystemGroupedBackground)
     static let surfaceStrong = Color(uiColor: .tertiarySystemGroupedBackground)
     static let control = Color(uiColor: .tertiarySystemFill)
-    static let raised = Color(uiColor: .secondarySystemFill)
-    static let border = Color(uiColor: .separator).opacity(0.35)
-    static let divider = Color(uiColor: .separator)
     static let mutedText = Color.secondary
-    static let subtleText = Color(uiColor: .tertiaryLabel)
     static let cardCornerRadius: CGFloat = 22
     static let nestedCornerRadius: CGFloat = 16
     static let iconCornerRadiusRatio: CGFloat = 0.3

@@ -395,11 +395,6 @@ actor SpeakerCommandService {
         return result
     }
 
-    static func dialogMessage(for error: Error) -> String {
-        let commandError = error as? SpeakerCommandError ?? .unreachable
-        return String(localized: commandError.localizedStringResource)
-    }
-
     private func configuredSpeaker(id: String?) throws -> SavedSpeaker {
         if let id {
             guard let speaker = speakerRecords.speaker(id: id) else {

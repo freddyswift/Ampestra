@@ -168,14 +168,6 @@ final class SpeakerRecordStore: @unchecked Sendable {
         }
     }
 
-    func setDefaultSpeaker(id: String) {
-        lock.withLock {
-            let records = loadRecordsLocked()
-            guard records.contains(where: { $0.id == id }) else { return }
-            defaults.set(id, forKey: SpeakerPreferenceKeys.defaultSpeakerID)
-        }
-    }
-
     func removeAll() {
         lock.withLock {
             defaults.removeObject(forKey: SpeakerPreferenceKeys.savedSpeakers)

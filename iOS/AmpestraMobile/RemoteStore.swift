@@ -65,6 +65,7 @@ final class RemoteStore: ObservableObject {
     private var speakerMACAddress: String?
     private var connectionTask: Task<Void, Never>?
     private var pollingTask: Task<Void, Never>?
+    private var refreshTask: Task<Void, Never>?
     private var commandTask: Task<Void, Never>?
     private var commandGeneration = 0
     private var noticeTask: Task<Void, Never>?
@@ -163,21 +164,6 @@ final class RemoteStore: ObservableObject {
         volume == 0
     }
 
-    var connectionDetail: String {
-        switch connectionState {
-        case .disconnected:
-            "Choose a speaker to begin"
-        case .connecting:
-            currentHost ?? "Checking your speaker"
-        case .connected:
-            speakerStatus == .powerOn ? (currentHost ?? "Ready") : speakerStatus.detailText
-        case .reconnecting(let attempt):
-            "Attempt \(attempt) · \(currentHost ?? "speaker")"
-        case .failed(let message):
-            message
-        }
-    }
-
     func setAppActive(_ isActive: Bool, mutePhoneOnStop: Bool = false) {
         guard appIsActive != isActive else {
             if !isActive, mutePhoneOnStop, mutePhoneOnExit {
@@ -204,6 +190,7 @@ final class RemoteStore: ObservableObject {
             connectionTask = nil
             pollingTask?.cancel()
             pollingTask = nil
+            cancelRefresh()
             cancelCommand()
             cancelVolumeTasks()
             isAdjustingVolume = false
@@ -248,6 +235,7 @@ final class RemoteStore: ObservableObject {
         let generation = connectionGeneration
         connectionTask?.cancel()
         pollingTask?.cancel()
+        cancelRefresh()
         cancelCommand()
         cancelVolumeTasks()
         isAdjustingVolume = false
@@ -320,6 +308,7 @@ final class RemoteStore: ObservableObject {
         connectionGeneration += 1
         connectionTask?.cancel()
         pollingTask?.cancel()
+        cancelRefresh()
         cancelCommand()
         cancelVolumeTasks()
         discovery.stopDiscovery()
@@ -530,14 +519,14 @@ final class RemoteStore: ObservableObject {
     }
 
     func apply(_ snapshot: SpeakerSnapshot) {
-        speakerName = snapshot.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        updateIfChanged(\.speakerName, snapshot.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? "KEF Speaker"
-            : snapshot.name
-        speakerModel = snapshot.model
-        speakerStatus = snapshot.status
-        source = snapshot.source
+            : snapshot.name)
+        updateIfChanged(\.speakerModel, snapshot.model)
+        updateIfChanged(\.speakerStatus, snapshot.status)
+        updateIfChanged(\.source, snapshot.source)
         if !isPreviewingVolume, !isAdjustingVolume {
-            volume = VolumePolicy.clampedVolume(snapshot.volume)
+            updateIfChanged(\.volume, VolumePolicy.clampedVolume(snapshot.volume))
             if volume > 0 { mutedRestoreVolume = nil }
         }
         if snapshot.status != .powerOn || !snapshot.source.usesPlaybackStateForVolumeRouting {
@@ -568,51 +557,55 @@ final class RemoteStore: ObservableObject {
                 do {
                     try await self.sleep(delay)
                     guard !Task.isCancelled, self.connectionGeneration == generation else { return }
-                    let snapshot = try await speaker.getSnapshot()
-                    guard !Task.isCancelled, self.connectionGeneration == generation,
-                          self.speaker === speaker else { return }
-                    self.consecutiveFailures = 0
-                    self.apply(snapshot)
-                    self.connectionState = .connected
-                    self.lastError = nil
-                    self.updateHardwareButtonCapture()
-                    await self.refreshPlayerState(using: speaker, snapshot: snapshot)
-                } catch is CancellationError {
-                    return
                 } catch {
-                    guard !Task.isCancelled, self.connectionGeneration == generation,
-                          self.speaker === speaker else { return }
-                    self.consecutiveFailures += 1
-                    self.connectionState = .reconnecting(attempt: self.consecutiveFailures)
-                    self.lastError = self.message(for: error)
-                    self.updateHardwareButtonCapture()
+                    return
                 }
+                await self.refresh(using: speaker).value
             }
         }
     }
 
-    private func refresh(using speaker: KEFSpeakerClient) {
+    /// Manual refreshes and polling share the same request, including player metadata.
+    @discardableResult
+    private func refresh(using speaker: KEFSpeakerClient) -> Task<Void, Never> {
+        if let refreshTask { return refreshTask }
         let generation = connectionGeneration
-        Task { @MainActor [weak self, weak speaker] in
+        let task = Task { @MainActor [weak self, weak speaker] in
             guard let self, let speaker else { return }
+            defer {
+                if self.connectionGeneration == generation {
+                    self.refreshTask = nil
+                }
+            }
+            guard !Task.isCancelled, self.appIsActive,
+                  self.connectionGeneration == generation, self.speaker === speaker else { return }
             do {
                 let snapshot = try await speaker.getSnapshot()
-                guard self.connectionGeneration == generation, self.speaker === speaker else { return }
+                guard !Task.isCancelled, self.connectionGeneration == generation,
+                      self.speaker === speaker else { return }
                 self.consecutiveFailures = 0
+                self.updateIfChanged(\.connectionState, .connected)
+                self.updateIfChanged(\.lastError, nil)
                 self.apply(snapshot)
-                self.connectionState = .connected
-                self.lastError = nil
                 await self.refreshPlayerState(using: speaker, snapshot: snapshot)
             } catch is CancellationError {
                 return
             } catch {
-                guard self.connectionGeneration == generation else { return }
+                guard !Task.isCancelled, self.connectionGeneration == generation,
+                      self.speaker === speaker else { return }
                 self.consecutiveFailures += 1
                 self.connectionState = .reconnecting(attempt: self.consecutiveFailures)
                 self.lastError = self.message(for: error)
                 self.updateHardwareButtonCapture()
             }
         }
+        refreshTask = task
+        return task
+    }
+
+    private func cancelRefresh() {
+        refreshTask?.cancel()
+        refreshTask = nil
     }
 
     private func performCommand(
@@ -694,13 +687,21 @@ final class RemoteStore: ObservableObject {
             artist: normalizedMetadata(playerState.nowPlaying.artist),
             album: normalizedMetadata(playerState.nowPlaying.album)
         )
-        isPlaying = playerState.isPlaying
-        nowPlaying = info.hasInfo ? info : nil
+        updateIfChanged(\.isPlaying, playerState.isPlaying)
+        updateIfChanged(\.nowPlaying, info.hasInfo ? info : nil)
     }
 
     private func clearPlayerState() {
-        isPlaying = false
-        nowPlaying = nil
+        updateIfChanged(\.isPlaying, false)
+        updateIfChanged(\.nowPlaying, nil)
+    }
+
+    private func updateIfChanged<Value: Equatable>(
+        _ keyPath: ReferenceWritableKeyPath<RemoteStore, Value>, _ value: Value
+    ) {
+        if self[keyPath: keyPath] != value {
+            self[keyPath: keyPath] = value
+        }
     }
 
     private func normalizedMetadata(_ value: String?) -> String? {
