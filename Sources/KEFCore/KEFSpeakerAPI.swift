@@ -252,6 +252,7 @@ public final class KEFSpeakerAPI: Sendable {
         guard let statusRaw = entries[0].string("kefSpeakerStatus") else {
             throw KEFError.invalidResponse
         }
+        let volume = try Self.validatedVolume(from: entries[2])
         let sourceRaw = entries[1].string("kefPhysicalSource") ?? "standby"
         let modelRaw = entries[4].string("string_") ?? ""
         let model = Self.normalizedModelName(from: modelRaw)
@@ -260,7 +261,7 @@ public final class KEFSpeakerAPI: Sendable {
         return SpeakerSnapshot(
             status: SpeakerStatus(rawValue: statusRaw),
             source: SpeakerSource(rawValue: sourceRaw) ?? .wifi,
-            volume: entries[2].int("i32_") ?? 0,
+            volume: volume,
             name: entries[3].string("string_") ?? "KEF Speaker",
             model: model
         )
@@ -298,7 +299,14 @@ public final class KEFSpeakerAPI: Sendable {
 
     public func getVolume() async throws -> Int {
         let data = try await firstData(path: "player:volume")
-        return data.int("i32_") ?? 0
+        return try Self.validatedVolume(from: data)
+    }
+
+    private static func validatedVolume(from entry: KEFDataEntry) throws -> Int {
+        guard let volume = entry.int("i32_"), 0...100 ~= volume else {
+            throw KEFError.invalidResponse
+        }
+        return volume
     }
 
     public func getSpeakerName() async throws -> String {
@@ -492,8 +500,8 @@ enum KEFJSONValue: Codable, Equatable, Sendable {
         switch self {
         case .int(let value):
             return value
-        case .double(let value) where value.rounded() == value:
-            return Int(value)
+        case .double(let value):
+            return Int(exactly: value)
         default:
             return nil
         }

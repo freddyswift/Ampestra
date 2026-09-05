@@ -427,6 +427,98 @@ final class KEFSpeakerAPITests: XCTestCase {
         XCTAssertEqual(entries.first?.object("trackRoles")?["title"]?.stringValue, "Song")
     }
 
+    func testIntegerConversionRejectsUnrepresentableAndNonIntegralDoubles() {
+        for value in [1e100, -1e100, Double(Int.max), .infinity, -.infinity, .nan, 42.5] {
+            XCTAssertNil(KEFJSONValue.double(value).intValue, "Expected rejection of \(value)")
+        }
+
+        XCTAssertEqual(KEFJSONValue.double(42).intValue, 42)
+        XCTAssertEqual(KEFJSONValue.double(-42).intValue, -42)
+        XCTAssertEqual(KEFJSONValue.double(Double(Int.min)).intValue, Int.min)
+        XCTAssertEqual(KEFJSONValue.int(Int.max).intValue, Int.max)
+    }
+
+    func testVolumeReadsPreserveValidNumericRepresentations() async throws {
+        for (value, expected) in [("0", 0), ("100", 100), ("42", 42), ("42.0", 42), ("4.2e1", 42)] {
+            let entry = #"{"i32_":\#(value)}"#
+            let (api, recorder) = makeVolumeAPI(batchedEntry: entry, individualEntry: entry)
+
+            let snapshot = try await api.getSnapshot()
+            XCTAssertEqual(snapshot.volume, expected, value)
+            XCTAssertEqual(recorder.requests.count, 1, "Valid batch should not fall back")
+            let volume = try await api.getVolume()
+            XCTAssertEqual(volume, expected, value)
+        }
+    }
+
+    func testGetVolumeRejectsInvalidVolumeValues() async throws {
+        for entry in invalidVolumeEntries {
+            let (api, _) = makeVolumeAPI(batchedEntry: entry, individualEntry: entry)
+            do {
+                _ = try await api.getVolume()
+                XCTFail("Expected invalid volume to throw: \(entry)")
+            } catch KEFError.invalidResponse {
+                // Expected; malformed values must not become a false mute state.
+            }
+        }
+    }
+
+    func testInvalidBatchedVolumeFallsBackToValidIndividualVolume() async throws {
+        for entry in invalidVolumeEntries {
+            let (api, recorder) = makeVolumeAPI(
+                batchedEntry: entry,
+                individualEntry: #"{"i32_":24}"#
+            )
+
+            let snapshot = try await api.getSnapshot()
+
+            XCTAssertEqual(snapshot.volume, 24, entry)
+            XCTAssertEqual(recorder.requests.count, 6, "Invalid batch must use individual reads: \(entry)")
+        }
+    }
+
+    func testSnapshotRejectsInvalidVolumeInBothReadPaths() async throws {
+        for entry in invalidVolumeEntries {
+            let (api, recorder) = makeVolumeAPI(batchedEntry: entry, individualEntry: entry)
+            do {
+                _ = try await api.getSnapshot()
+                XCTFail("Expected invalid snapshot volume to throw: \(entry)")
+            } catch KEFError.invalidResponse {
+                XCTAssertTrue(recorder.requests.contains { $0.queryValue("path") == "player:volume" })
+            }
+        }
+    }
+
+    private var invalidVolumeEntries: [String] {
+        ["-1", "101", String(Int.min), String(Int.max), "1e100", "-1e100",
+         "1e309", "42.5", "null", "true", #""42""#]
+            .map { #"{"i32_":\#($0)}"# } + ["{}"]
+    }
+
+    private func makeVolumeAPI(
+        batchedEntry: String,
+        individualEntry: String
+    ) -> (KEFSpeakerAPI, RequestRecorder) {
+        makeAPI { request in
+            let status = #"{"kefSpeakerStatus":"powerOn"}"#
+            let source = #"{"kefPhysicalSource":"tv"}"#
+            let name = #"{"string_":"Living Room"}"#
+            let model = #"{"string_":"LSXII_V30137"}"#
+            let path = request.queryValue("path") ?? ""
+            if path.contains(",") {
+                return .json("[" + [status, source, batchedEntry, name, model].joined(separator: ",") + "]")
+            }
+            switch path {
+            case "settings:/kef/host/speakerStatus": return .json("[\(status)]")
+            case "settings:/kef/play/physicalSource": return .json("[\(source)]")
+            case "player:volume": return .json("[\(individualEntry)]")
+            case "settings:/deviceName": return .json("[\(name)]")
+            case "settings:/releasetext": return .json("[\(model)]")
+            default: throw URLError(.badURL)
+            }
+        }
+    }
+
     func testRejectsNonArrayResponse() {
         XCTAssertThrowsError(try KEFSpeakerAPI.decodeDataEntries(Data(#"{"state":"playing"}"#.utf8)))
     }
