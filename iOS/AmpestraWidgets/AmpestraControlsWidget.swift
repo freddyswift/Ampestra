@@ -102,17 +102,7 @@ struct AmpestraControlsWidgetView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                 }
-                if let reading = entry.reading {
-                    HStack(spacing: 3) {
-                        Text("Last known")
-                        Text(reading.updatedAt, style: .relative)
-                    }
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .accessibilityLabel(Text("Last updated \(reading.updatedAt.formatted())"))
-                } else {
+                if entry.reading == nil {
                     Text("Open app to sync")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
