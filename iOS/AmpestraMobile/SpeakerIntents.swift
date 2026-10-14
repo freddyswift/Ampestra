@@ -544,7 +544,7 @@ private struct SpeakerIntentResultView: View {
                 .font(.title2.weight(.semibold))
                 .foregroundStyle(Color.cyan)
                 .frame(width: 48, height: 48)
-                .background(Color.cyan.opacity(0.14), in: RoundedRectangle(cornerRadius: 14))
+                .background(Color.cyan.opacity(0.14), in: AmpestraShapes.icon)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(headline)

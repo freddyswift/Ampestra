@@ -64,8 +64,7 @@ struct SpeakerOverviewCard: View {
                             .font(.system(size: 14, weight: .semibold))
                             .frame(width: 44, height: 44)
                     }
-                    .ampestraGlassButton()
-                    .buttonBorderShape(.circle)
+                    .ampestraGlassButton(shape: .circle)
                     .foregroundStyle(AmpestraTheme.mutedText)
                     .accessibilityLabel(refreshAccessibilityLabel)
                 } else {
@@ -82,8 +81,7 @@ struct SpeakerOverviewCard: View {
                         .font(.system(size: 14, weight: .semibold))
                         .frame(width: 44, height: 44)
                 }
-                .ampestraGlassButton()
-                .buttonBorderShape(.circle)
+                .ampestraGlassButton(shape: .circle)
                 .foregroundStyle(AmpestraTheme.accentBright)
                 .accessibilityLabel("Settings")
             }
@@ -175,14 +173,11 @@ struct RemoteErrorBanner: View {
         .padding(16)
         .background(
             Color.orange.opacity(0.08),
-            in: RoundedRectangle(
-                cornerRadius: AmpestraTheme.cardCornerRadius,
-                style: .continuous
-            )
+            in: AmpestraShapes.card
         )
         .overlay {
-            RoundedRectangle(cornerRadius: AmpestraTheme.cardCornerRadius, style: .continuous)
-                .stroke(Color.orange.opacity(0.2), lineWidth: 1)
+            AmpestraShapes.card
+                .strokeBorder(Color.orange.opacity(0.2), lineWidth: 1)
         }
     }
 }
@@ -207,7 +202,6 @@ struct ChooseSpeakerCard: View {
                     .frame(minHeight: 48)
             }
             .ampestraGlassButton(prominent: true)
-            .buttonBorderShape(.capsule)
             .tint(AmpestraTheme.accent)
         }
         .padding(22)

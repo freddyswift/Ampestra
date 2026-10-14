@@ -109,6 +109,6 @@ private struct SavedSpeakerRow: View {
             }
         }
         .padding(12)
-        .background(AmpestraTheme.control, in: RoundedRectangle(cornerRadius: AmpestraTheme.nestedCornerRadius))
+        .background(AmpestraTheme.control, in: AmpestraShapes.control)
     }
 }

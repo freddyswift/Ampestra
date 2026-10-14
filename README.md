@@ -27,6 +27,8 @@ its optional physical-button mode observes iPhone output-volume changes and
 translates them into configurable speaker-volume steps. Capture stops when the
 app leaves the foreground. Ampestra saves the phone volume on foreground entry
 and restores that value when capture stops, including when you leave the app.
+It checks the native volume control before recentering and keeps the audio
+session active briefly to confirm the restore, retrying delayed volume writes.
 
 The Home Screen widget reads current speaker volume and power state when its
 timeline refreshes. It requests another automatic refresh after 15 minutes;

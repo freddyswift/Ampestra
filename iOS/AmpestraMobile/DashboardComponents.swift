@@ -103,7 +103,6 @@ struct VolumeControlCard: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
             .ampestraGlassButton(prominent: true)
-            .buttonBorderShape(.capsule)
             .tint(AmpestraTheme.accent)
             .foregroundStyle(AmpestraTheme.onAccent)
             .accessibilityLabel(store.isMuted ? "Restore volume" : "Mute")
@@ -127,8 +126,7 @@ struct VolumeControlCard: View {
                 .font(.system(size: 17, weight: .semibold))
                 .frame(width: controlDiameter, height: controlDiameter)
         }
-        .ampestraGlassButton()
-        .buttonBorderShape(.circle)
+        .ampestraGlassButton(shape: .circle)
         .accessibilityLabel(label)
     }
 
@@ -365,8 +363,7 @@ struct PlaybackControlCard: View {
                     height: controlDiameter(prominent: prominent)
                 )
         }
-        .ampestraGlassButton(prominent: prominent)
-        .buttonBorderShape(.circle)
+        .ampestraGlassButton(prominent: prominent, shape: .circle)
         .tint(AmpestraTheme.accent)
         .foregroundStyle(prominent ? AmpestraTheme.onAccent : AmpestraTheme.accentBright)
         .disabled(store.isSendingCommand || !store.canControlPlayback)
@@ -445,7 +442,6 @@ struct StandbyControlCard: View {
                     .frame(minHeight: compact ? 44 : 48)
                 }
                 .ampestraGlassButton(prominent: true)
-                .buttonBorderShape(.capsule)
                 .tint(AmpestraTheme.accent)
                 .disabled(store.isSendingCommand)
             }
@@ -512,14 +508,12 @@ struct SpeakerActionsRow: View {
                 )
             }
             .ampestraGlassButton()
-            .buttonBorderShape(.capsule)
             .frame(maxWidth: .infinity)
             .tint(.primary)
             .disabled(store.connectionState != .connected || store.isSendingCommand)
 
             sourceControl
             .ampestraGlassButton()
-            .buttonBorderShape(.capsule)
             .frame(maxWidth: .infinity)
             .tint(.primary)
             .disabled(!store.canControlSpeaker || store.isSendingCommand)
@@ -591,7 +585,7 @@ private struct ControlTileLabel: View {
         }
         .padding(.horizontal, compact ? 8 : 10)
         .frame(maxWidth: .infinity, minHeight: 44, alignment: .center)
-        .contentShape(Capsule())
+        .contentShape(AmpestraShapes.control)
     }
 
     private var labels: some View {

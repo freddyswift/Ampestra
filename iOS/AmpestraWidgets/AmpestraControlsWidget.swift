@@ -194,7 +194,7 @@ private struct AmpestraWidgetActionButton<Intent: AppIntent>: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(highlighted ? Color.cyan : Color.primary)
-        .background(highlighted ? Color.cyan.opacity(0.18) : Color.primary.opacity(0.07), in: .rect(cornerRadius: 14))
+        .background(highlighted ? Color.cyan.opacity(0.18) : Color.primary.opacity(0.07), in: AmpestraShapes.control)
         .accessibilityLabel(Text(title))
     }
 }

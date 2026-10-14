@@ -24,7 +24,9 @@
 		35164F183FDC1D7E1615D488 /* VolumePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF4B7FDAB797B7F9425F5488 /* VolumePolicy.swift */; };
 		357C47DEA15EDAE8E720D3FA /* ManualHostValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C6D486AF9337C780480C779 /* ManualHostValidator.swift */; };
 		3BB670FDAC999582D16AE674 /* RemoteStore+Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6DADA1AB50C7FE59D536167 /* RemoteStore+Connection.swift */; };
+		3BE3E90323A6437358567EB8 /* AmpestraShapes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98D504C4C01168C960C6866C /* AmpestraShapes.swift */; };
 		3C71CF6354974C2E3424CCA4 /* MobileDiagnosticsReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F0F0623DCD21D096AD4A10B /* MobileDiagnosticsReport.swift */; };
+		42192BCE156099CC0735F702 /* AmpestraShapes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98D504C4C01168C960C6866C /* AmpestraShapes.swift */; };
 		442098CF9E089FEE4DB3C507 /* AccessibilityMatrixTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D43DDC705F78757940D2EF34 /* AccessibilityMatrixTests.swift */; };
 		55229DA3071EDA63F8AA7F95 /* RemoteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 765E75417F77A6BC30A45FF2 /* RemoteView.swift */; };
 		56F77FBFCAA2362F63B6C8BD /* SpeakerCommandQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F2439271C95AF77E3E92B9 /* SpeakerCommandQueue.swift */; };
@@ -183,6 +185,7 @@
 		87D82D76FD2389C5FD26F489 /* AmpestraMobileIntentTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AmpestraMobileIntentTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		88CFC6744EE4F178AADF41EA /* SavedSpeakersCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedSpeakersCard.swift; sourceTree = "<group>"; };
 		8977A074E1AD5927EA1B46B6 /* MobileDiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileDiagnosticsView.swift; sourceTree = "<group>"; };
+		98D504C4C01168C960C6866C /* AmpestraShapes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmpestraShapes.swift; sourceTree = "<group>"; };
 		9EF55F9D184AE019B0D2B2F5 /* SpeakerModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerModels.swift; sourceTree = "<group>"; };
 		BE59CEC7AC550DB955B3C906 /* SpeakerCommandService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerCommandService.swift; sourceTree = "<group>"; };
 		BEEDE8E5087719B37AA70E34 /* WidgetIntentMetadataTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetIntentMetadataTests.swift; sourceTree = "<group>"; };
@@ -337,6 +340,7 @@
 		BFC6A98170F75C4699507004 /* AmpestraShared */ = {
 			isa = PBXGroup;
 			children = (
+				98D504C4C01168C960C6866C /* AmpestraShapes.swift */,
 				855BBF1C99A64EFD716FC39B /* AmpestraSharedDefaults.swift */,
 				4B457076F104DC6B1C2DD6FE /* PrivacyInfo.xcprivacy */,
 				C1F2439271C95AF77E3E92B9 /* SpeakerCommandQueue.swift */,
@@ -541,6 +545,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C58356953B8AC0CCC80CD1AE /* AmpestraMobileApp.swift in Sources */,
+				42192BCE156099CC0735F702 /* AmpestraShapes.swift in Sources */,
 				2706FDB07F9C0ABFEB87BFDC /* AmpestraSharedDefaults.swift in Sources */,
 				D86C6921FCC5DF7736B4E0B0 /* ConnectionComponents.swift in Sources */,
 				1798CF11D706835A6769973C /* ConnectionView.swift in Sources */,
@@ -611,6 +616,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				FCABDB93B7B171B6CF614102 /* AmpestraControlsWidget.swift in Sources */,
+				3BE3E90323A6437358567EB8 /* AmpestraShapes.swift in Sources */,
 				FDD8674D4C9FE6B4187A96BE /* AmpestraSharedDefaults.swift in Sources */,
 				27F3D623A50AA89563440D0B /* SavedSpeakerStore.swift in Sources */,
 				56F77FBFCAA2362F63B6C8BD /* SpeakerCommandQueue.swift in Sources */,
@@ -774,7 +780,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 3VNW72P883;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -959,7 +965,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 3VNW72P883;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;

@@ -140,7 +140,6 @@ struct ConnectionView: View {
                 .frame(minHeight: 48)
             }
             .ampestraGlassButton(prominent: true)
-            .buttonBorderShape(.capsule)
             .tint(discovery.isSearching ? AmpestraTheme.surfaceStrong : AmpestraTheme.accent)
             .disabled(store.connectionState == .connecting)
         }
@@ -166,8 +165,11 @@ struct ConnectionView: View {
                     .focused($manualFieldFocused)
                     .submitLabel(.go)
                     .onSubmit(connectManually)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 12)
                     .frame(minHeight: 50)
+                    .background(AmpestraTheme.control, in: AmpestraShapes.control)
                     .accessibilityLabel("Speaker address")
                     .accessibilityIdentifier("manual-speaker-address")
 
@@ -183,8 +185,7 @@ struct ConnectionView: View {
                     }
                     .frame(width: 50, height: 50)
                 }
-                .ampestraGlassButton(prominent: true)
-                .buttonBorderShape(.circle)
+                .ampestraGlassButton(prominent: true, shape: .circle)
                 .tint(AmpestraTheme.accent)
                 .disabled(!manualHostIsValid || store.connectionState == .connecting)
                 .accessibilityLabel("Connect to manual address")
@@ -223,21 +224,17 @@ struct ConnectionView: View {
                     .frame(minHeight: 48)
             }
             .ampestraGlassButton(prominent: true)
-            .buttonBorderShape(.capsule)
             .tint(.orange)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
         .background(
             Color.orange.opacity(0.08),
-            in: RoundedRectangle(
-                cornerRadius: AmpestraTheme.cardCornerRadius,
-                style: .continuous
-            )
+            in: AmpestraShapes.card
         )
         .overlay {
-            RoundedRectangle(cornerRadius: AmpestraTheme.cardCornerRadius, style: .continuous)
-                .stroke(Color.orange.opacity(0.22), lineWidth: 1)
+            AmpestraShapes.card
+                .strokeBorder(Color.orange.opacity(0.22), lineWidth: 1)
         }
     }
 
@@ -267,17 +264,9 @@ struct ConnectionView: View {
             .padding(12)
             .background(
                 AmpestraTheme.control,
-                in: RoundedRectangle(
-                    cornerRadius: AmpestraTheme.nestedCornerRadius,
-                    style: .continuous
-                )
+                in: AmpestraShapes.control
             )
-            .contentShape(
-                RoundedRectangle(
-                    cornerRadius: AmpestraTheme.nestedCornerRadius,
-                    style: .continuous
-                )
-            )
+            .contentShape(AmpestraShapes.control)
         }
         .buttonStyle(.plain)
         .disabled(store.connectionState == .connecting)

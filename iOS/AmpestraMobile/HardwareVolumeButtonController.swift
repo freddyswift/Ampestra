@@ -24,13 +24,28 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
     private var observation: NSKeyValueObservation?
     private var lifecycleMonitor: AudioSessionLifecycleMonitoring?
     private var recenterTask: Task<Void, Never>?
+    private var entrySnapshotTask: Task<Void, Never>?
+    private var restorationTask: Task<Void, Never>?
+    private var restorationGeneration = 0
+    private var restorationBackgroundTask: UIBackgroundTaskIdentifier = .invalid
+    private(set) var isRestoringVolume = false
     private var interpreter = OutputVolumeChangeInterpreter(initialVolume: 0.5)
     private weak var volumeSlider: UISlider?
+    // Keep the native control alive until its asynchronous restore completes.
+    private var retainedVolumeView: MPVolumeView?
+    private var volumeControlIsInWindow = false
     private var originalVolume: Float?
     private var foregroundVolume: Float?
     private let readSystemVolume: () -> Float
     private let writeSystemVolume: ((Float) -> Void)?
-    private var suppressedTarget: Float?
+    private let readVolumeControl: (() -> Float?)?
+    private let audioSessionOperation: (@Sendable (Bool) throws -> Void)?
+    private let entryReadingIsAuthoritative: Bool
+    private var hasCapturedControlVolume = false
+    private var hasAdjustedPhoneVolume = false
+    private var audioSessionIsActive = false
+    private var lastRestorationError: String?
+    private var suppressedTarget: (volume: Float, expires: ContinuousClock.Instant)?
     private var wantsCapture = false
     private var isInterrupted = false
     private var isActivating = false
@@ -39,11 +54,16 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
     init(
         audioSession: AVAudioSession = .sharedInstance(),
         readSystemVolume: (() -> Float)? = nil,
-        writeSystemVolume: ((Float) -> Void)? = nil
+        writeSystemVolume: ((Float) -> Void)? = nil,
+        readVolumeControl: (() -> Float?)? = nil,
+        audioSessionOperation: (@Sendable (Bool) throws -> Void)? = nil
     ) {
         self.audioSession = audioSession
         self.readSystemVolume = readSystemVolume ?? { audioSession.outputVolume }
         self.writeSystemVolume = writeSystemVolume
+        self.readVolumeControl = readVolumeControl
+        self.audioSessionOperation = audioSessionOperation
+        entryReadingIsAuthoritative = readSystemVolume != nil && readVolumeControl == nil
         super.init()
 
         lifecycleMonitor = makeAudioSessionLifecycleMonitor(audioSession: audioSession) { [weak self] event in
@@ -53,23 +73,42 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
 
     deinit {
         observation?.invalidate()
+        recenterTask?.cancel()
+        entrySnapshotTask?.cancel()
+        restorationTask?.cancel()
+        let backgroundTask = restorationBackgroundTask
+        if backgroundTask != .invalid {
+            Task { @MainActor in UIApplication.shared.endBackgroundTask(backgroundTask) }
+        }
     }
 
     func attach(volumeView: MPVolumeView) {
-        guard let slider = volumeView.firstVolumeSlider, slider !== volumeSlider else { return }
+        guard let slider = volumeView.firstVolumeSlider else { return }
+        let isInWindow = volumeView.window != nil
+        guard slider !== volumeSlider || isInWindow != volumeControlIsInWindow else { return }
+        retainedVolumeView = volumeView
         volumeSlider = slider
+        volumeControlIsInWindow = isInWindow
+        scheduleEntrySnapshot()
+        startCaptureIfReady()
 
         if wantsCapture, isCapturing {
-            recenterSystemVolume(after: .zero)
+            recenterSystemVolume(after: .milliseconds(80))
         }
     }
 
     func start() {
         wantsCapture = true
         guard !isCapturing, !isActivating, !isInterrupted else { return }
+        cancelRestoration()
         // Capture before asynchronous activation or recentering can change it.
         originalVolume = originalVolume ?? foregroundVolume
             ?? OutputVolumeChangeInterpreter.clamped(readSystemVolume())
+        if audioSessionIsActive {
+            scheduleEntrySnapshot()
+            startCaptureIfReady()
+            return
+        }
 
         activateAudioSession(
             failureMessage: "Physical volume buttons are unavailable"
@@ -78,12 +117,25 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
 
     func beginForegroundSession() {
         guard foregroundVolume == nil else { return }
+        cancelRestoration()
+        hasAdjustedPhoneVolume = false
+        hasCapturedControlVolume = entryReadingIsAuthoritative
         foregroundVolume = OutputVolumeChangeInterpreter.clamped(readSystemVolume())
+        scheduleEntrySnapshot()
     }
 
     func endForegroundSession() {
+        // Capture can stop earlier when a speaker disconnects, sleeps or changes
+        // source. The entry value still belongs to the entire foreground session.
+        if originalVolume == nil, hasAdjustedPhoneVolume {
+            originalVolume = foregroundVolume
+        }
         stop()
+        entrySnapshotTask?.cancel()
+        entrySnapshotTask = nil
         foregroundVolume = nil
+        hasCapturedControlVolume = false
+        hasAdjustedPhoneVolume = false
     }
 
     func stop() {
@@ -91,6 +143,7 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
         // Avoid publishing state and queueing redundant audio-session deactivations.
         guard wantsCapture || isCapturing || isActivating || isInterrupted
                 || originalVolume != nil else { return }
+        captureEntryVolumeFromControl()
         wantsCapture = false
         isInterrupted = false
         activationRequestID &+= 1
@@ -100,17 +153,22 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
         observation?.invalidate()
         observation = nil
         isCapturing = false
+        audioSessionIsActive = false
 
-        if let exitVolume = originalVolume {
-            setSystemVolume(exitVolume)
+        // If the control never became ready and we never changed phone volume,
+        // leave it alone rather than writing a potentially stale session value.
+        let exitVolume = hasCapturedControlVolume || hasAdjustedPhoneVolume || entryReadingIsAuthoritative
+            ? originalVolume : nil
+        if let exitVolume {
             phoneOutputVolume = exitVolume
         }
         originalVolume = nil
         suppressedTarget = nil
 
-        let audioSession = audioSession
-        audioSessionQueue.async {
-            try? audioSession.setActive(false, options: [.notifyOthersOnDeactivation])
+        if let exitVolume {
+            restorePhoneVolume(exitVolume)
+        } else {
+            deactivateAudioSession()
         }
     }
 
@@ -120,10 +178,15 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
         isActivating = true
 
         let audioSession = audioSession
+        let operation = audioSessionOperation
         audioSessionQueue.async { [weak self] in
             let result: Result<Void, Error> = Result {
-                try audioSession.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
-                try audioSession.setActive(true)
+                if let operation {
+                    try operation(true)
+                } else {
+                    try audioSession.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
+                    try audioSession.setActive(true)
+                }
             }
 
             Task { @MainActor [weak self] in
@@ -147,25 +210,36 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
 
         switch result {
         case .success:
-            let initialVolume = OutputVolumeChangeInterpreter.clamped(audioSession.outputVolume)
-            phoneOutputVolume = initialVolume
-            interpreter.reset(to: initialVolume)
+            audioSessionIsActive = true
             isInterrupted = false
-            lastError = nil
-            installObservation()
-            isCapturing = true
-            recenterSystemVolume(after: .zero)
+            lastError = lastRestorationError
+            scheduleEntrySnapshot()
+            startCaptureIfReady()
         case .failure(let error):
+            audioSessionIsActive = false
             isCapturing = false
             lastError = "\(failureMessage): \(error.localizedDescription)"
         }
     }
 
+    private func startCaptureIfReady() {
+        guard wantsCapture, audioSessionIsActive, !isInterrupted, !isCapturing,
+              hasCapturedControlVolume || entryReadingIsAuthoritative else { return }
+        let current = readVolumeControl?() ?? volumeSlider?.value ?? readSystemVolume()
+        phoneOutputVolume = OutputVolumeChangeInterpreter.clamped(current)
+        interpreter.reset(to: current)
+        installObservation()
+        isCapturing = true
+        recenterSystemVolume(after: .milliseconds(80))
+    }
+
     private func installObservation() {
         observation?.invalidate()
+        let requestID = activationRequestID
         observation = audioSession.observe(\.outputVolume, options: [.new]) { [weak self] _, change in
             guard let newVolume = change.newValue else { return }
             Task { @MainActor [weak self] in
+                guard self?.activationRequestID == requestID else { return }
                 self?.receiveOutputVolume(newVolume)
             }
         }
@@ -173,14 +247,19 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
 
     private func receiveOutputVolume(_ newVolume: Float) {
         guard wantsCapture, isCapturing, !isInterrupted else { return }
+        guard hasCapturedControlVolume || entryReadingIsAuthoritative else { return }
 
         let newVolume = OutputVolumeChangeInterpreter.clamped(newVolume)
         phoneOutputVolume = newVolume
 
-        if let target = suppressedTarget, abs(newVolume - target) < 0.035 {
-            suppressedTarget = nil
-            interpreter.reset(to: newVolume)
-            return
+        if let target = suppressedTarget {
+            if target.expires <= .now {
+                suppressedTarget = nil
+            } else if abs(newVolume - target.volume) < 0.005 {
+                suppressedTarget = nil
+                interpreter.reset(to: newVolume)
+                return
+            }
         }
 
         guard let direction = interpreter.direction(for: newVolume) else { return }
@@ -203,14 +282,17 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
 
             guard let self, self.wantsCapture, self.isCapturing, !self.isInterrupted else { return }
 
-            guard self.volumeSlider != nil else {
+            guard self.volumeSlider != nil || self.writeSystemVolume != nil else {
                 self.suppressedTarget = nil
                 self.interpreter.reset(to: self.audioSession.outputVolume)
                 return
             }
 
             let target: Float = 0.5
-            self.suppressedTarget = target
+            self.captureEntryVolumeFromControl()
+            guard self.hasCapturedControlVolume || self.entryReadingIsAuthoritative else { return }
+            self.hasAdjustedPhoneVolume = true
+            self.suppressedTarget = (target, .now + .milliseconds(250))
             self.interpreter.reset(to: target)
             self.setSystemVolume(target)
         }
@@ -225,6 +307,103 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
         guard let volumeSlider else { return }
         volumeSlider.setValue(volume, animated: false)
         volumeSlider.sendActions(for: .valueChanged)
+        volumeSlider.sendActions(for: .touchUpInside)
+    }
+
+    private func scheduleEntrySnapshot() {
+        guard foregroundVolume != nil, !hasCapturedControlVolume, !hasAdjustedPhoneVolume else { return }
+        entrySnapshotTask?.cancel()
+        entrySnapshotTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
+            self?.captureEntryVolumeFromControl()
+        }
+    }
+
+    private func captureEntryVolumeFromControl() {
+        guard foregroundVolume != nil, !hasCapturedControlVolume, !hasAdjustedPhoneVolume else { return }
+        // outputVolume can retain an inactive session's old reading. Let the
+        // native volume control settle in its window before trusting its value.
+        let controlVolume = readVolumeControl?()
+            ?? (retainedVolumeView?.window != nil ? volumeSlider?.value : nil)
+        guard let controlVolume else { return }
+        let entryVolume = OutputVolumeChangeInterpreter.clamped(controlVolume)
+        foregroundVolume = entryVolume
+        interpreter.reset(to: entryVolume)
+        hasCapturedControlVolume = true
+        if wantsCapture || originalVolume != nil { originalVolume = foregroundVolume }
+        startCaptureIfReady()
+    }
+
+    private func restorePhoneVolume(_ target: Float) {
+        cancelRestoration()
+        isRestoringVolume = true
+        let generation = restorationGeneration
+        // Start while the scene is leaving active state, allowing this short
+        // restore to finish even if UIKit backgrounds the process immediately.
+        restorationBackgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Restore iPhone volume") { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.restorationGeneration == generation else { return }
+                self.reportRestorationFailure()
+                self.cancelRestoration()
+                self.deactivateAudioSession()
+            }
+        }
+        setSystemVolume(target)
+        restorationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let delays: [Duration] = [.milliseconds(40), .milliseconds(70), .milliseconds(120), .milliseconds(180)]
+            for (index, delay) in delays.enumerated() {
+                do { try await Task.sleep(for: delay) } catch { return }
+                guard self.restorationGeneration == generation, !self.wantsCapture else { return }
+                if abs(self.readSystemVolume() - target) < 0.005 {
+                    let previousRestoreError = self.lastRestorationError
+                    self.lastRestorationError = nil
+                    if self.lastError == previousRestoreError { self.lastError = nil }
+                    self.finishRestoration(generation: generation)
+                    return
+                }
+                if index < delays.count - 1 { self.setSystemVolume(target) }
+            }
+            self.reportRestorationFailure()
+            self.finishRestoration(generation: generation)
+        }
+    }
+
+    private func reportRestorationFailure() {
+        lastRestorationError = "iPhone volume restoration could not be confirmed. Check your volume in Control Centre."
+        lastError = lastRestorationError
+    }
+
+    private func finishRestoration(generation: Int) {
+        guard restorationGeneration == generation else { return }
+        phoneOutputVolume = OutputVolumeChangeInterpreter.clamped(readSystemVolume())
+        restorationTask = nil
+        isRestoringVolume = false
+        endRestorationBackgroundTask()
+        deactivateAudioSession()
+    }
+
+    private func cancelRestoration() {
+        restorationGeneration &+= 1
+        restorationTask?.cancel()
+        restorationTask = nil
+        isRestoringVolume = false
+        endRestorationBackgroundTask()
+    }
+
+    private func endRestorationBackgroundTask() {
+        guard restorationBackgroundTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(restorationBackgroundTask)
+        restorationBackgroundTask = .invalid
+    }
+
+    private func deactivateAudioSession() {
+        let audioSession = audioSession
+        let operation = audioSessionOperation
+        audioSessionQueue.async {
+            if let operation { try? operation(false) }
+            else { try? audioSession.setActive(false, options: [.notifyOthersOnDeactivation]) }
+        }
     }
 
     private func handleLifecycleEvent(_ event: AudioSessionLifecycleEvent) {
@@ -234,6 +413,7 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
             activationRequestID &+= 1
             isActivating = false
             isInterrupted = true
+            audioSessionIsActive = false
             isCapturing = false
             recenterTask?.cancel()
         case .shouldResume:
@@ -377,7 +557,8 @@ struct SystemVolumeCaptureView: UIViewRepresentable {
     let controller: HardwareVolumeButtonController
 
     func makeUIView(context: Context) -> MPVolumeView {
-        let view = MPVolumeView(frame: .zero)
+        let view = ReadySystemVolumeView(frame: .zero)
+        view.onReady = { [weak controller] view in controller?.attach(volumeView: view) }
         view.showsVolumeSlider = true
         view.alpha = 0.001
         view.clipsToBounds = true
@@ -392,6 +573,20 @@ struct SystemVolumeCaptureView: UIViewRepresentable {
     func updateUIView(_ uiView: MPVolumeView, context: Context) {
         uiView.clipsToBounds = true
         controller.attach(volumeView: uiView)
+    }
+}
+
+private final class ReadySystemVolumeView: MPVolumeView {
+    var onReady: ((MPVolumeView) -> Void)?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        onReady?(self)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        onReady?(self)
     }
 }
 

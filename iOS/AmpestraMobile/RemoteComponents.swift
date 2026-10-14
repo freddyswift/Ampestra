@@ -17,9 +17,6 @@ enum AmpestraTheme {
             ? UIColor(red: 0.70, green: 0.72, blue: 0.76, alpha: 1)
             : UIColor(red: 0.36, green: 0.38, blue: 0.42, alpha: 1)
     })
-    static let cardCornerRadius: CGFloat = 22
-    static let nestedCornerRadius: CGFloat = 16
-    static let iconCornerRadiusRatio: CGFloat = 0.3
 }
 
 struct AmpestraBackdrop: View {
@@ -57,14 +54,12 @@ struct AmpestraBackdrop: View {
 }
 
 private struct AmpestraCardModifier: ViewModifier {
-    var cornerRadius: CGFloat = AmpestraTheme.cardCornerRadius
-
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        let shape = AmpestraShapes.card
 
         content
             .background {
@@ -106,16 +101,21 @@ private struct AmpestraCardModifier: ViewModifier {
 }
 
 extension View {
-    func ampestraCard(cornerRadius: CGFloat = AmpestraTheme.cardCornerRadius) -> some View {
-        modifier(AmpestraCardModifier(cornerRadius: cornerRadius))
+    func ampestraCard() -> some View {
+        modifier(AmpestraCardModifier())
     }
 
     @ViewBuilder
-    func ampestraGlassButton(prominent: Bool = false) -> some View {
+    func ampestraGlassButton(
+        prominent: Bool = false,
+        shape: ButtonBorderShape = AmpestraShapes.controlButtonBorder
+    ) -> some View {
         if prominent {
             self.buttonStyle(.glassProminent)
+                .buttonBorderShape(shape)
         } else {
             self.buttonStyle(.glass)
+                .buttonBorderShape(shape)
         }
     }
 
@@ -130,7 +130,7 @@ struct AmpestraMark: View {
             .foregroundStyle(AmpestraTheme.accent)
             .frame(width: size, height: size)
             .background {
-                AmpestraIconBadgeBackground(color: AmpestraTheme.accent, size: size)
+                AmpestraIconBadgeBackground(color: AmpestraTheme.accent)
             }
             .accessibilityHidden(true)
     }
@@ -172,7 +172,7 @@ struct RemoteIcon: View {
             .foregroundStyle(color)
             .frame(width: size, height: size)
             .background {
-                AmpestraIconBadgeBackground(color: color, size: size)
+                AmpestraIconBadgeBackground(color: color)
             }
             .accessibilityHidden(true)
     }
@@ -180,16 +180,12 @@ struct RemoteIcon: View {
 
 private struct AmpestraIconBadgeBackground: View {
     let color: Color
-    let size: CGFloat
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
     var body: some View {
-        let shape = RoundedRectangle(
-            cornerRadius: size * AmpestraTheme.iconCornerRadiusRatio,
-            style: .continuous
-        )
+        let shape = AmpestraShapes.icon
 
         shape
             .fill(
