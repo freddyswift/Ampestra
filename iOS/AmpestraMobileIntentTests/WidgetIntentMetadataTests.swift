@@ -23,6 +23,7 @@ final class WidgetIntentMetadataTests: XCTestCase {
             "LowerSpeakerVolumeWidgetIntent",
             "RaiseSpeakerVolumeWidgetIntent",
             "MuteSpeakerWidgetIntent",
+            "RefreshSpeakerWidgetIntent",
         ] {
             let intent = definitions.intents[identifier].makeIntent(speakerID: speakerID)
             let exportedID: String = try intent.speakerID

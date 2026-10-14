@@ -844,14 +844,164 @@ final class MobileBehaviorTests: XCTestCase {
         store.setAppActive(false)
     }
 
-    func testMutePhoneOnExitPreferencePersists() {
+    func testForegroundVolumeRestoresEntryValueAndIgnoresLegacyMuteSetting() {
         let defaults = makeDefaults()
-        let store = RemoteStore(defaults: defaults)
+        defaults.set(true, forKey: SpeakerPreferenceKeys.mutePhoneOnExit)
+        var phoneVolume: Float = 0.72
+        var restored: [Float] = []
+        let controller = HardwareVolumeButtonController(
+            readSystemVolume: { phoneVolume },
+            writeSystemVolume: { restored.append($0); phoneVolume = $0 }
+        )
+        let store = RemoteStore(defaults: defaults, hardwareButtons: controller)
+        store.setAppActive(true)
+        phoneVolume = 0.3 // The connection finishes after foreground entry.
+        controller.start()
+        store.setAppActive(false) // Also covers leaving during activation.
+        XCTAssertEqual(restored, [0.72])
+        store.setAppActive(false)
+        XCTAssertEqual(restored, [0.72], "Repeated inactive/background events must not zero the phone")
 
-        XCTAssertFalse(store.mutePhoneOnExit)
-        store.mutePhoneOnExit = true
+        phoneVolume = 0.25
+        store.setAppActive(true)
+        controller.start()
+        store.setAppActive(false)
+        XCTAssertEqual(restored, [0.72, 0.25], "Each reopening saves the new phone volume")
+    }
 
-        XCTAssertTrue(defaults.bool(forKey: SpeakerPreferenceKeys.mutePhoneOnExit))
+    func testCaptureRestartsKeepForegroundEntryVolumeAndDisabledCaptureLeavesPhoneAlone() {
+        var phoneVolume: Float = 0
+        var restored: [Float] = []
+        let controller = HardwareVolumeButtonController(
+            readSystemVolume: { phoneVolume },
+            writeSystemVolume: { restored.append($0); phoneVolume = $0 }
+        )
+        controller.beginForegroundSession()
+        phoneVolume = 0.5
+        controller.start()
+        controller.stop()
+        phoneVolume = 0.4
+        controller.start()
+        controller.endForegroundSession()
+        XCTAssertEqual(restored, [0, 0], "A saved zero is a valid volume; capture restarts must preserve it")
+
+        controller.beginForegroundSession()
+        phoneVolume = 0.8
+        controller.endForegroundSession()
+        XCTAssertEqual(phoneVolume, 0.8, "Without capture, Ampestra must leave phone volume alone")
+    }
+
+    func testWidgetRefreshReadsLiveStatusWithoutRecursiveTimelineReload() async throws {
+        let defaults = makeDefaults()
+        let reloaded = expectation(description: "No recursive widget reload")
+        reloaded.isInverted = true
+        let setupRecords = SpeakerRecordStore(defaults: defaults, reloadWidgets: {})
+        let saved = try XCTUnwrap(setupRecords.save(host: "speaker.local", macAddress: nil,
+                                                   snapshot: speakerSnapshot(volume: 38)))
+        let records = SpeakerRecordStore(defaults: defaults, reloadWidgets: { reloaded.fulfill() })
+        let speaker = StubSpeaker(snapshots: [.success(speakerSnapshot(volume: 63))])
+        let commands = SpeakerCommandService(speakerRecords: records, clientFactory: { _ in speaker })
+        let service = WidgetSpeakerRefreshService(records: records, commands: commands)
+        let configuration = SelectWidgetSpeakerIntent()
+        configuration.speaker = WidgetSpeakerEntity(record: saved)
+        let previousReading = try XCTUnwrap(saved.widgetReading)
+        let refreshed = await service.refresh(configuration: configuration,
+                                               now: previousReading.updatedAt.addingTimeInterval(20))
+        XCTAssertFalse(refreshed.refreshFailed)
+        XCTAssertEqual(refreshed.reading?.volume, 63)
+        XCTAssertEqual(records.speaker(id: saved.id), saved, "Extension reads must not write shared records")
+        let reads = await speaker.snapshotAttemptCount()
+        XCTAssertEqual(reads, 1)
+        let writes = await speaker.recordedVolumes()
+        XCTAssertTrue(writes.isEmpty, "Refreshing must only read speaker status")
+        await fulfillment(of: [reloaded], timeout: 0.05)
+
+        let cached = await service.refresh(configuration: configuration)
+        XCTAssertFalse(cached.refreshFailed)
+        XCTAssertEqual(cached.reading, previousReading)
+        let cachedReads = await speaker.snapshotAttemptCount()
+        XCTAssertEqual(cachedReads, 1, "A recent host-app reading should render without another network read")
+    }
+
+    func testWidgetRefreshFailureKeepsCachedReadingAndRemovedSelectionNeverFallsBack() async throws {
+        let records = SpeakerRecordStore(defaults: makeDefaults(), reloadWidgets: {})
+        let saved = try XCTUnwrap(records.save(host: "speaker.local", macAddress: nil,
+                                               snapshot: speakerSnapshot(volume: 38)))
+        let speaker = StubSpeaker(snapshots: [.failure(.unreachable)])
+        let commands = SpeakerCommandService(speakerRecords: records, clientFactory: { _ in speaker },
+                                              timing: SpeakerCommandTimingPolicy(readAttempts: 1))
+        let service = WidgetSpeakerRefreshService(records: records, commands: commands)
+        let configuration = SelectWidgetSpeakerIntent()
+        configuration.speaker = WidgetSpeakerEntity(record: saved)
+        let failed = await service.refresh(configuration: configuration, force: true)
+        XCTAssertTrue(failed.refreshFailed)
+        XCTAssertEqual(failed.reading, saved.widgetReading)
+        XCTAssertEqual(records.speaker(id: saved.id)?.widgetReading, saved.widgetReading)
+
+        records.remove(id: saved.id)
+        _ = records.save(host: "other.local", macAddress: nil, snapshot: speakerSnapshot(name: "Kitchen"))
+        let missing = await service.refresh(configuration: configuration, force: true)
+        XCTAssertTrue(missing.refreshFailed)
+        XCTAssertNil(missing.reading)
+        let reads = await speaker.snapshotAttemptCount()
+        XCTAssertEqual(reads, 1, "A missing selection must never read the new default speaker")
+    }
+
+    func testLateWidgetReadPreservesNewerHostCommandConfirmation() async throws {
+        let records = SpeakerRecordStore(defaults: makeDefaults(), reloadWidgets: {})
+        let saved = try XCTUnwrap(records.save(host: "speaker.local", macAddress: nil,
+                                               snapshot: speakerSnapshot(volume: 38)))
+        let readStarted = expectation(description: "Extension read started")
+        let gate = CommandGate()
+        let speaker = StubSpeaker(snapshots: [.success(speakerSnapshot(volume: 38))], readOperation: {
+            readStarted.fulfill()
+            await gate.wait()
+        })
+        let commands = SpeakerCommandService(speakerRecords: records, clientFactory: { _ in speaker })
+        let service = WidgetSpeakerRefreshService(records: records, commands: commands)
+        let configuration = SelectWidgetSpeakerIntent()
+        configuration.speaker = WidgetSpeakerEntity(record: saved)
+        let refresh = Task { await service.refresh(configuration: configuration, force: true) }
+        await fulfillment(of: [readStarted], timeout: 1)
+        // A different process completes a command while the extension is waiting.
+        records.updateWidgetReading(id: saved.id, volume: 70, isPoweredOn: true)
+        await gate.resume()
+        let result = await refresh.value
+        XCTAssertEqual(result.reading?.volume, 70)
+        XCTAssertEqual(records.speaker(id: saved.id)?.widgetReading?.volume, 70)
+        XCTAssertEqual(records.speaker(id: saved.id)?.lastSeenAt, saved.lastSeenAt)
+    }
+
+    func testWidgetRefreshTimeoutKeepsCacheAndReturnsPromptly() async throws {
+        let records = SpeakerRecordStore(defaults: makeDefaults(), reloadWidgets: {})
+        let saved = try XCTUnwrap(records.save(host: "speaker.local", macAddress: nil,
+                                               snapshot: speakerSnapshot(volume: 38)))
+        let speaker = StubSpeaker(snapshots: [.success(speakerSnapshot(volume: 63))], readDelay: .seconds(5))
+        let commands = SpeakerCommandService(speakerRecords: records, clientFactory: { _ in speaker },
+                                              timing: SpeakerCommandTimingPolicy(commandTimeout: .milliseconds(50), readAttempts: 1))
+        let service = WidgetSpeakerRefreshService(records: records, commands: commands)
+        let started = ContinuousClock.now
+        let result = await service.refresh(configuration: SelectWidgetSpeakerIntent(), force: true)
+        XCTAssertTrue(result.refreshFailed)
+        XCTAssertEqual(result.reading, saved.widgetReading)
+        XCTAssertEqual(records.speaker(id: saved.id), saved)
+        XCTAssertLessThan(started.duration(to: .now), .seconds(1))
+    }
+
+    func testManualWidgetStatusRefreshUpdatesSyncTimeEvenWhenVolumeUnchanged() async throws {
+        let defaults = makeDefaults()
+        let setupRecords = SpeakerRecordStore(defaults: defaults, reloadWidgets: {})
+        let saved = try XCTUnwrap(setupRecords.save(host: "speaker.local", macAddress: nil,
+                                                   snapshot: speakerSnapshot(volume: 38)))
+        let reloaded = expectation(description: "Manual refresh reloads widgets")
+        let records = SpeakerRecordStore(defaults: defaults, reloadWidgets: { reloaded.fulfill() })
+        let speaker = StubSpeaker(snapshots: [.success(speakerSnapshot(volume: 38))], readDelay: .milliseconds(10))
+        let commands = SpeakerCommandService(speakerRecords: records, clientFactory: { _ in speaker })
+        _ = try await commands.status(speakerID: saved.id)
+        let reading = try XCTUnwrap(records.speaker(id: saved.id)?.widgetReading)
+        XCTAssertEqual(reading.volume, 38)
+        XCTAssertGreaterThan(reading.updatedAt, try XCTUnwrap(saved.widgetReading).updatedAt)
+        await fulfillment(of: [reloaded], timeout: 1)
     }
 
     func testSharedDefaultsMigrationPreservesExistingSharedPreferences() {

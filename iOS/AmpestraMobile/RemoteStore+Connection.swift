@@ -5,16 +5,12 @@ import KEFCore
 /// Connection, foreground recovery, and polling share one generation to reject stale results.
 /// All operations remain main-actor isolated with RemoteStore.
 extension RemoteStore {
-    func setAppActive(_ isActive: Bool, mutePhoneOnStop: Bool = false) {
-        guard appIsActive != isActive else {
-            if !isActive, mutePhoneOnStop, mutePhoneOnExit {
-                hardwareButtons.stop(mutePhone: true)
-            }
-            return
-        }
+    func setAppActive(_ isActive: Bool) {
+        guard appIsActive != isActive else { return }
         appIsActive = isActive
 
         if isActive {
+            hardwareButtons.beginForegroundSession()
             localNetworkPermissionDenied = false
             if isDemoMode {
                 updateHardwareButtonCapture()
@@ -38,7 +34,7 @@ extension RemoteStore {
             isPreviewingVolume = false
             isSendingCommand = false
             discovery.stopDiscovery()
-            hardwareButtons.stop(mutePhone: mutePhoneOnStop && mutePhoneOnExit)
+            hardwareButtons.endForegroundSession()
         }
     }
 

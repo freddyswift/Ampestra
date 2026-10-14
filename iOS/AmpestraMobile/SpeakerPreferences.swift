@@ -11,6 +11,7 @@ enum SpeakerPreferenceKeys {
     static let savedMACAddress = "ios.savedSpeakerMACAddress"
     static let manualHost = "ios.manualSpeakerHost"
     static let hardwareButtonsEnabled = "ios.hardwareButtonsEnabled"
+    // Legacy migration key. Capture now always restores the foreground-entry volume.
     static let mutePhoneOnExit = "ios.mutePhoneOnExit"
     static let snapVolumeSteps = "ios.snapVolumeSteps"
     static let volumeStep = "ios.volumeStep"

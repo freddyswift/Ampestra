@@ -41,6 +41,7 @@ final class WidgetSpeakerSelectionTests: XCTestCase {
         XCTAssertEqual(LowerSpeakerVolumeWidgetIntent(speakerID: id).speakerID, id)
         XCTAssertEqual(RaiseSpeakerVolumeWidgetIntent(speakerID: id).speakerID, id)
         XCTAssertEqual(MuteSpeakerWidgetIntent(speakerID: id).speakerID, id)
+        XCTAssertEqual(RefreshSpeakerWidgetIntent(speakerID: id).speakerID, id)
     }
 
     private func makeRecords() -> SpeakerRecordStore {

@@ -32,11 +32,6 @@ final class RemoteStore: ObservableObject {
             updateHardwareButtonCapture()
         }
     }
-    @Published var mutePhoneOnExit: Bool {
-        didSet {
-            defaults.set(mutePhoneOnExit, forKey: SpeakerPreferenceKeys.mutePhoneOnExit)
-        }
-    }
     @Published var snapVolumeSteps: Bool {
         didSet {
             defaults.set(snapVolumeSteps, forKey: SpeakerPreferenceKeys.snapVolumeSteps)
@@ -118,7 +113,6 @@ final class RemoteStore: ObservableObject {
         hardwareButtonsEnabled = effectiveDefaults.object(forKey: SpeakerPreferenceKeys.hardwareButtonsEnabled) == nil
             ? true
             : effectiveDefaults.bool(forKey: SpeakerPreferenceKeys.hardwareButtonsEnabled)
-        mutePhoneOnExit = effectiveDefaults.bool(forKey: SpeakerPreferenceKeys.mutePhoneOnExit)
 
         #if DEBUG
         isDemoMode = ProcessInfo.processInfo.arguments.contains("--demo-mode") || useSavedSpeakerDemo

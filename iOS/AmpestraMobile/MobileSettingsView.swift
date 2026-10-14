@@ -117,10 +117,6 @@ struct MobileSettingsView: View {
                 Label("Control speaker", systemImage: "iphone.gen3")
             }
 
-            Toggle(isOn: $store.mutePhoneOnExit) {
-                Label("Mute iPhone on exit", systemImage: "speaker.slash.fill")
-            }
-
             Stepper(value: $store.volumeStep, in: VolumePolicy.allowedStepRange) {
                 LabeledContent("Step") {
                     Text("\(store.volumeStep)%")
@@ -146,7 +142,7 @@ struct MobileSettingsView: View {
             Text("Volume buttons")
                 .foregroundStyle(AmpestraTheme.mutedText)
         } footer: {
-            Text("Snapping moves volume to the next or previous step multiple. Available for steps 1, 2, 4, 5, 10, 20, and 25; other steps add or subtract the selected amount.")
+            Text("Ampestra saves your iPhone volume when you open the app and restores it when you leave. Snapping moves speaker volume to the next or previous step multiple. Available for steps 1, 2, 4, 5, 10, 20, and 25; other steps add or subtract the selected amount.")
                 .foregroundStyle(AmpestraTheme.mutedText)
         }
     }

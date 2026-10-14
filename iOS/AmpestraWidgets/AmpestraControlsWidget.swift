@@ -9,6 +9,7 @@ struct AmpestraControlsEntry: TimelineEntry {
     let isConfigured: Bool
     var reading: WidgetSpeakerReading? = nil
     var speakerID: String? = nil
+    var refreshFailed = false
 }
 
 struct AmpestraControlsProvider: AppIntentTimelineProvider {
@@ -23,14 +24,19 @@ struct AmpestraControlsProvider: AppIntentTimelineProvider {
     }
 
     func snapshot(for configuration: SelectWidgetSpeakerIntent, in context: Context) async -> AmpestraControlsEntry {
-        context.isPreview ? placeholder(in: context) : currentEntry(configuration: configuration)
+        if context.isPreview { return placeholder(in: context) }
+        return await refreshedEntry(configuration: configuration)
     }
 
     func timeline(for configuration: SelectWidgetSpeakerIntent, in context: Context) async -> Timeline<AmpestraControlsEntry> {
-        Timeline(entries: [currentEntry(configuration: configuration)], policy: .never)
+        let entry = await refreshedEntry(configuration: configuration)
+        return Timeline(entries: [entry], policy: .after(
+            entry.date.addingTimeInterval(WidgetSpeakerRefreshService.refreshInterval)
+        ))
     }
 
-    private func currentEntry(configuration: SelectWidgetSpeakerIntent) -> AmpestraControlsEntry {
+    private func refreshedEntry(configuration: SelectWidgetSpeakerIntent) async -> AmpestraControlsEntry {
+        let refreshed = await WidgetSpeakerRefreshService().refresh(configuration: configuration)
         let speakerRecords = SpeakerRecordStore.shared
         let speaker = configuration.selectedSpeaker(in: speakerRecords)
         return AmpestraControlsEntry(
@@ -38,8 +44,10 @@ struct AmpestraControlsProvider: AppIntentTimelineProvider {
             speakerName: speaker?.displayName ?? configuration.speaker?.name ?? "Speaker Controls",
             volumeStep: speakerRecords.preferredVolumeStep(),
             isConfigured: speaker != nil && speaker?.requiresReconfirmation != true,
-            reading: speaker?.requiresReconfirmation == true ? nil : speaker?.widgetReading,
-            speakerID: speaker?.id ?? configuration.speaker?.id
+            reading: speaker?.requiresReconfirmation == true ? nil
+                : (speaker?.id == refreshed.speakerID ? refreshed.reading : speaker?.widgetReading),
+            speakerID: speaker?.id ?? configuration.speaker?.id,
+            refreshFailed: speaker?.id != refreshed.speakerID || refreshed.refreshFailed
         )
     }
 }
@@ -73,15 +81,26 @@ struct AmpestraControlsWidgetView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 9) {
+        HStack(spacing: 6) {
             Image(systemName: "hifispeaker.2.fill")
                 .font(.headline)
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.cyan)
 
             Text(entry.speakerName)
-                .font(.headline)
+                .font(family == .systemSmall ? .caption.weight(.semibold) : .headline)
                 .lineLimit(1)
+            Spacer(minLength: 0)
+            if entry.isConfigured {
+                Button(intent: RefreshSpeakerWidgetIntent(speakerID: entry.speakerID)) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.caption.weight(.semibold))
+                        .frame(width: 28, height: 28)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Refresh speaker")
+            }
         }
     }
 
@@ -93,14 +112,23 @@ struct AmpestraControlsWidgetView: View {
                         .font(.system(size: family == .systemSmall ? 30 : 32, weight: .semibold, design: .rounded))
                         .monospacedDigit()
                         .contentTransition(.numericText())
-                    Text(entry.reading.map { !$0.isPoweredOn ? "Unavailable" : ($0.volume == 0 ? "Muted" : "/ 100") } ?? "Volume")
+                    Text(entry.reading.map { !$0.isPoweredOn ? "Standby" : ($0.volume == 0 ? "Muted" : "/ 100") } ?? "Volume")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                 }
-                if entry.reading == nil {
-                    Text("Open app to sync")
+                if let reading = entry.reading {
+                    HStack(spacing: 3) {
+                        Text(entry.refreshFailed ? "Offline ·" : "Synced")
+                        Text(reading.updatedAt, style: .relative)
+                            .lineLimit(1)
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Last synced \(reading.updatedAt.formatted()). \(entry.refreshFailed ? "Speaker unreachable." : "")")
+                } else {
+                    Text(entry.refreshFailed ? "Can't reach speaker" : "Tap refresh to sync")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -181,7 +209,7 @@ struct AmpestraControlsWidget: Widget {
             AmpestraControlsWidgetView(entry: entry)
         }
         .configurationDisplayName("Speaker Controls")
-        .description("Choose a saved speaker, see its last known volume, adjust it, or toggle mute.")
+        .description("See speaker volume, adjust it, toggle mute, or refresh directly from your Home Screen.")
         .supportedFamilies([.systemSmall, .systemMedium])
     }
 }

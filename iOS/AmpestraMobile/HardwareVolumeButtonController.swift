@@ -27,14 +27,23 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
     private var interpreter = OutputVolumeChangeInterpreter(initialVolume: 0.5)
     private weak var volumeSlider: UISlider?
     private var originalVolume: Float?
+    private var foregroundVolume: Float?
+    private let readSystemVolume: () -> Float
+    private let writeSystemVolume: ((Float) -> Void)?
     private var suppressedTarget: Float?
     private var wantsCapture = false
     private var isInterrupted = false
     private var isActivating = false
     private var activationRequestID = 0
 
-    init(audioSession: AVAudioSession = .sharedInstance()) {
+    init(
+        audioSession: AVAudioSession = .sharedInstance(),
+        readSystemVolume: (() -> Float)? = nil,
+        writeSystemVolume: ((Float) -> Void)? = nil
+    ) {
         self.audioSession = audioSession
+        self.readSystemVolume = readSystemVolume ?? { audioSession.outputVolume }
+        self.writeSystemVolume = writeSystemVolume
         super.init()
 
         lifecycleMonitor = makeAudioSessionLifecycleMonitor(audioSession: audioSession) { [weak self] event in
@@ -58,17 +67,30 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
     func start() {
         wantsCapture = true
         guard !isCapturing, !isActivating, !isInterrupted else { return }
+        // Capture before asynchronous activation or recentering can change it.
+        originalVolume = originalVolume ?? foregroundVolume
+            ?? OutputVolumeChangeInterpreter.clamped(readSystemVolume())
 
         activateAudioSession(
             failureMessage: "Physical volume buttons are unavailable"
         )
     }
 
-    func stop(mutePhone: Bool = false) {
+    func beginForegroundSession() {
+        guard foregroundVolume == nil else { return }
+        foregroundVolume = OutputVolumeChangeInterpreter.clamped(readSystemVolume())
+    }
+
+    func endForegroundSession() {
+        stop()
+        foregroundVolume = nil
+    }
+
+    func stop() {
         // Snapshot polling may repeatedly ask an already stopped controller to stop.
         // Avoid publishing state and queueing redundant audio-session deactivations.
         guard wantsCapture || isCapturing || isActivating || isInterrupted
-                || originalVolume != nil || mutePhone else { return }
+                || originalVolume != nil else { return }
         wantsCapture = false
         isInterrupted = false
         activationRequestID &+= 1
@@ -79,8 +101,7 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
         observation = nil
         isCapturing = false
 
-        let exitVolume = mutePhone ? 0 : originalVolume
-        if let exitVolume {
+        if let exitVolume = originalVolume {
             setSystemVolume(exitVolume)
             phoneOutputVolume = exitVolume
         }
@@ -127,7 +148,6 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
         switch result {
         case .success:
             let initialVolume = OutputVolumeChangeInterpreter.clamped(audioSession.outputVolume)
-            originalVolume = originalVolume ?? initialVolume
             phoneOutputVolume = initialVolume
             interpreter.reset(to: initialVolume)
             isInterrupted = false
@@ -197,8 +217,12 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
     }
 
     private func setSystemVolume(_ volume: Float) {
-        guard let volumeSlider else { return }
         let volume = OutputVolumeChangeInterpreter.clamped(volume)
+        if let writeSystemVolume {
+            writeSystemVolume(volume)
+            return
+        }
+        guard let volumeSlider else { return }
         volumeSlider.setValue(volume, animated: false)
         volumeSlider.sendActions(for: .valueChanged)
     }

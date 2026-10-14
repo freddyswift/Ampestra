@@ -60,8 +60,8 @@ actor SpeakerCommandService {
 
     private let commandQueue = SpeakerCommandQueue.shared
 
-    func status(speakerID: String? = nil) async throws -> SpeakerCommandConfirmation {
-        try await execute(.status, speakerID: speakerID)
+    func status(speakerID: String? = nil, updateRecords: Bool = true) async throws -> SpeakerCommandConfirmation {
+        try await execute(.status(updateRecords: updateRecords), speakerID: speakerID)
     }
 
     func setSource(_ source: SpeakerSource, speakerID: String? = nil) async throws -> SpeakerCommandConfirmation {
@@ -112,7 +112,7 @@ actor SpeakerCommandService {
     }
 
     private enum Command: Sendable {
-        case status, source(SpeakerSource), adjust(Int, snap: Bool), volume(Int), mute(Bool), toggleMute
+        case status(updateRecords: Bool), source(SpeakerSource), adjust(Int, snap: Bool), volume(Int), mute(Bool), toggleMute
         case power(Bool), playback(SpeakerPlaybackCommand)
     }
 
@@ -122,7 +122,8 @@ actor SpeakerCommandService {
         _ = try configuredSpeaker(id: speakerID)
         let result: SpeakerCommandConfirmation
         switch command {
-        case .status: result = try await performStatus(speakerID: speakerID)
+        case .status(let updateRecords):
+            result = try await performStatus(speakerID: speakerID, updateRecords: updateRecords)
         case .source(let source): result = try await performSetSource(source, speakerID: speakerID)
         case .adjust(let amount, let snap):
             result = try await performAdjustVolume(by: amount, speakerID: speakerID, snap: snap)
@@ -141,14 +142,18 @@ actor SpeakerCommandService {
             await commandQueue.clearVolume(speakerID: speakerID)
         default: break
         }
+        // The extension only renders live reads. Never let its separate process
+        // overwrite the host app's newer confirmed commands or speaker records.
+        if case .status(updateRecords: false) = command { return result }
         speakerRecords.updateWidgetReading(
-            id: result.speakerID, volume: result.volume, isPoweredOn: result.status == .powerOn
+            id: result.speakerID, volume: result.volume, isPoweredOn: result.status == .powerOn,
+            forceTimestamp: true
         )
         return result
     }
 
-    private func performStatus(speakerID: String? = nil) async throws -> SpeakerCommandConfirmation {
-        let connection = try await connection(for: speakerID)
+    private func performStatus(speakerID: String? = nil, updateRecords: Bool) async throws -> SpeakerCommandConfirmation {
+        let connection = try await connection(for: speakerID, updateRecords: updateRecords)
         return confirmation(
             record: connection.record,
             snapshot: connection.snapshot,
@@ -417,13 +422,14 @@ actor SpeakerCommandService {
         return speaker
     }
 
-    private func connection(for speakerID: String?) async throws -> SpeakerConnection {
-        try await connection(to: configuredSpeaker(id: speakerID), retryReads: true)
+    private func connection(for speakerID: String?, updateRecords: Bool = true) async throws -> SpeakerConnection {
+        try await connection(to: configuredSpeaker(id: speakerID), retryReads: true, updateRecords: updateRecords)
     }
 
     private func connection(
         to record: SavedSpeaker,
-        retryReads: Bool
+        retryReads: Bool,
+        updateRecords: Bool = true
     ) async throws -> SpeakerConnection {
         guard record.requiresReconfirmation != true else { throw SpeakerCommandError.speakerIdentityChanged }
         var lastError: SpeakerCommandError = .unreachable
@@ -435,7 +441,9 @@ actor SpeakerCommandService {
                 var snapshot = try await readSnapshot(from: client, retry: retryReads)
                 guard record.accepts(snapshot) else { throw SpeakerCommandError.speakerIdentityChanged }
                 snapshot.volume = await commandQueue.reconciledVolume(snapshot.volume, speakerID: record.id)
-                speakerRecords.markReachable(id: record.id, host: host, snapshot: snapshot)
+                if updateRecords {
+                    speakerRecords.markReachable(id: record.id, host: host, snapshot: snapshot)
+                }
                 let updatedRecord = speakerRecords.speaker(id: record.id) ?? record
                 return SpeakerConnection(
                     record: updatedRecord,

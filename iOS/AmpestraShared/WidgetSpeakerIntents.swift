@@ -71,6 +71,11 @@ private let widgetSpeakerCommands = SpeakerCommandService(
     speakerRecords: SpeakerRecordStore.shared
 )
 
+private let widgetRefreshCommands = SpeakerCommandService(
+    speakerRecords: SpeakerRecordStore.shared,
+    timing: SpeakerCommandTimingPolicy(commandTimeout: .seconds(4), readAttempts: 1)
+)
+
 private protocol WidgetSpeakerControlIntent: AppIntent, CancellableIntent {}
 
 extension WidgetSpeakerControlIntent {
@@ -144,6 +149,28 @@ struct MuteSpeakerWidgetIntent: WidgetSpeakerControlIntent {
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let result = try await runWidgetSpeakerCommand {
             try await widgetSpeakerCommands.toggleMute(speakerID: speakerID)
+        }
+        return .result(dialog: IntentDialog(result.message))
+    }
+}
+
+struct RefreshSpeakerWidgetIntent: WidgetSpeakerControlIntent {
+    static let title: LocalizedStringResource = "Refresh Speaker"
+    static let description = IntentDescription("Reads the selected speaker's current volume and power state.")
+    static let isDiscoverable = false
+
+    @Parameter(title: "Speaker ID")
+    var speakerID: String?
+
+    init() {}
+
+    init(speakerID: String?) {
+        self.speakerID = speakerID
+    }
+
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let result = try await runWidgetSpeakerCommand {
+            try await widgetRefreshCommands.status(speakerID: speakerID)
         }
         return .result(dialog: IntentDialog(result.message))
     }

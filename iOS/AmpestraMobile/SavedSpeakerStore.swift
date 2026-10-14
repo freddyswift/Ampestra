@@ -221,7 +221,10 @@ final class SpeakerRecordStore: @unchecked Sendable {
         reloadWidgets()
     }
 
-    func updateWidgetReading(id: String, volume: Int, isPoweredOn: Bool, now: Date = Date()) {
+    func updateWidgetReading(
+        id: String, volume: Int, isPoweredOn: Bool, now: Date = Date(),
+        forceTimestamp: Bool = false
+    ) {
         let shouldReload = lock.withLock {
             var records = loadRecordsLocked()
             guard let index = records.firstIndex(where: { $0.id == id }),
@@ -229,7 +232,7 @@ final class SpeakerRecordStore: @unchecked Sendable {
             let previous = records[index].widgetReading
             let volume = VolumePolicy.clampedVolume(volume)
             // Avoid requesting a timeline reload for every identical foreground poll.
-            guard previous?.volume != volume || previous?.isPoweredOn != isPoweredOn
+            guard forceTimestamp || previous?.volume != volume || previous?.isPoweredOn != isPoweredOn
                     || now.timeIntervalSince(previous?.updatedAt ?? .distantPast) >= 60 else { return false }
             records[index].widgetReading = WidgetSpeakerReading(
                 volume: volume, isPoweredOn: isPoweredOn, updatedAt: now

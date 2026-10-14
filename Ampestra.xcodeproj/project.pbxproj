@@ -37,6 +37,7 @@
 		741BA858EEB995346757385F /* WidgetSpeakerSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51FF25DCF13DC1FCDAD9C825 /* WidgetSpeakerSelectionTests.swift */; };
 		7D6A51F059AA280705C947E4 /* RemoteSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47AA12540673F101FD5D8791 /* RemoteSupport.swift */; };
 		7DC956A141303FE036C4AB4A /* SpeakerPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6F6E42D05DDE9FDA949A05D /* SpeakerPreferences.swift */; };
+		86B60925B1348643DA6D8B50 /* WidgetSpeakerRefreshService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C0FC9935C14FB75FFE6C888 /* WidgetSpeakerRefreshService.swift */; };
 		8B4A2CA4FC8D1D3F2DC4BDB7 /* SpeakerEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = F39149BBD64FAD170E858D71 /* SpeakerEntity.swift */; };
 		8BBFD7E84C24098D532C1402 /* SavedSpeakerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3B55187793804A45C3BE2BB /* SavedSpeakerStore.swift */; };
 		8CB3B28C260F2CAF6653623A /* WidgetSpeakerIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27E5B3223210AB1988C5A66D /* WidgetSpeakerIntents.swift */; };
@@ -51,6 +52,7 @@
 		C3A15D3DA57EDD100E81519E /* SpeakerPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6F6E42D05DDE9FDA949A05D /* SpeakerPreferences.swift */; };
 		C4457893E4E686E00552A281 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2EAFC92D5EFC4A7993FBA98B /* Assets.xcassets */; };
 		C58356953B8AC0CCC80CD1AE /* AmpestraMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C045766989176CC3E3CCC9F /* AmpestraMobileApp.swift */; };
+		C69107AE01D6762BC575F8D1 /* WidgetSpeakerRefreshService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C0FC9935C14FB75FFE6C888 /* WidgetSpeakerRefreshService.swift */; };
 		D4450485FD65BDF9FCE93B3C /* MobileBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 553FC315FEEB5CD99E9C1572 /* MobileBehaviorTests.swift */; };
 		D53130BCFE1BF316FBE81EBD /* WidgetIntentMetadataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEEDE8E5087719B37AA70E34 /* WidgetIntentMetadataTests.swift */; };
 		D86C6921FCC5DF7736B4E0B0 /* ConnectionComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA29EF749FCE435255F0B2F5 /* ConnectionComponents.swift */; };
@@ -167,6 +169,7 @@
 		511C75AA572E2682508A691B /* RemoteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteStore.swift; sourceTree = "<group>"; };
 		51FF25DCF13DC1FCDAD9C825 /* WidgetSpeakerSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSpeakerSelectionTests.swift; sourceTree = "<group>"; };
 		553FC315FEEB5CD99E9C1572 /* MobileBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileBehaviorTests.swift; sourceTree = "<group>"; };
+		6C0FC9935C14FB75FFE6C888 /* WidgetSpeakerRefreshService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSpeakerRefreshService.swift; sourceTree = "<group>"; };
 		6C78F9688EC626207B2252C3 /* AmpestraMobileTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AmpestraMobileTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		6DC8FDE6D4882107D30E1FD5 /* WakeOnLAN.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WakeOnLAN.swift; sourceTree = "<group>"; };
 		7408C5790E4D521B47DB274C /* SavedSpeakerPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedSpeakerPersistenceTests.swift; sourceTree = "<group>"; };
@@ -338,6 +341,7 @@
 				4B457076F104DC6B1C2DD6FE /* PrivacyInfo.xcprivacy */,
 				C1F2439271C95AF77E3E92B9 /* SpeakerCommandQueue.swift */,
 				27E5B3223210AB1988C5A66D /* WidgetSpeakerIntents.swift */,
+				6C0FC9935C14FB75FFE6C888 /* WidgetSpeakerRefreshService.swift */,
 			);
 			path = AmpestraShared;
 			sourceTree = "<group>";
@@ -560,6 +564,7 @@
 				E51B33E42C2531F0CA840F99 /* SpeakerIntents.swift in Sources */,
 				C3A15D3DA57EDD100E81519E /* SpeakerPreferences.swift in Sources */,
 				B831D932E56851CE04CFBFFB /* WidgetSpeakerIntents.swift in Sources */,
+				86B60925B1348643DA6D8B50 /* WidgetSpeakerRefreshService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -612,6 +617,7 @@
 				70DFFA2F99181ABF3B4A2283 /* SpeakerCommandService.swift in Sources */,
 				7DC956A141303FE036C4AB4A /* SpeakerPreferences.swift in Sources */,
 				8CB3B28C260F2CAF6653623A /* WidgetSpeakerIntents.swift in Sources */,
+				C69107AE01D6762BC575F8D1 /* WidgetSpeakerRefreshService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

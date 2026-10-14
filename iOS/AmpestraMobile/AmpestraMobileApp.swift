@@ -37,10 +37,7 @@ struct AmpestraMobileApp: App {
         WindowGroup {
             RemoteView(store: store)
                 .onChange(of: scenePhase, initial: true) { _, newPhase in
-                    store.setAppActive(
-                        newPhase == .active,
-                        mutePhoneOnStop: newPhase == .background
-                    )
+                    store.setAppActive(newPhase == .active)
                 }
         }
     }

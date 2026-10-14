@@ -25,9 +25,14 @@ and provides native controls tailored to iPhone and the macOS menu bar.
 The iOS target requires iOS 27 or later. While the app is in the foreground,
 its optional physical-button mode observes iPhone output-volume changes and
 translates them into configurable speaker-volume steps. Capture stops when the
-app leaves the foreground. By default the previous phone volume is restored;
-an opt-in setting can instead mute iPhone media volume when the app enters the
-background.
+app leaves the foreground. Ampestra saves the phone volume on foreground entry
+and restores that value when capture stops, including when you leave the app.
+
+The Home Screen widget reads current speaker volume and power state when its
+timeline refreshes. It requests another automatic refresh after 15 minutes;
+iOS decides the actual timing. Tap its refresh button to sync without opening
+the app. Volume and mute actions immediately save their confirmed reading for
+the widget, and the last sync time stays visible if the speaker is unreachable.
 
 ### Siri and Shortcuts
 

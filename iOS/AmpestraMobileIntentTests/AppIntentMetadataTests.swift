@@ -56,6 +56,7 @@ final class AppIntentMetadataTests: XCTestCase {
             "LowerSpeakerVolumeWidgetIntent",
             "RaiseSpeakerVolumeWidgetIntent",
             "MuteSpeakerWidgetIntent",
+            "RefreshSpeakerWidgetIntent",
         ] {
             let intent = definitions.intents[identifier]
             XCTAssertEqual(intent.bundleIdentifier, bundleIdentifier)
