@@ -2,6 +2,26 @@ import XCTest
 
 @MainActor
 final class ImprovementScreensTests: XCTestCase {
+    func testRemoteSurvivesRepeatedBackgroundAndForeground() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo-mode", "--demo-saved-speakers"]
+        app.launch()
+        defer { app.terminate() }
+        XCTAssertTrue(app.scrollViews["remote-controls-scroll"].waitForExistence(timeout: 5))
+        for _ in 0..<3 {
+            XCUIDevice.shared.press(.home)
+            XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5))
+            app.activate()
+            XCTAssertTrue(app.scrollViews["remote-controls-scroll"].waitForExistence(timeout: 5))
+            tapReachable(app.buttons["Volume up"], in: app)
+            // Return to the overview if the previous tap scrolled the remote.
+            for _ in 0..<16 where !app.buttons["Settings"].isHittable { app.swipeDown() }
+            tapReachable(app.buttons["Settings"], in: app)
+            XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 3))
+            app.navigationBars["Settings"].buttons["Done"].tap()
+        }
+    }
+
     func testChangingSpeakerCanRepeatedlyPresentAndDismissTheConnectionSheet() {
         let app = launchFixture()
         for attempt in 0..<3 {

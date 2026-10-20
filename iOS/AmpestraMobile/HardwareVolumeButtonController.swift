@@ -10,6 +10,7 @@ import UIKit
 /// from its hard limits while capture is active.
 @MainActor
 final class HardwareVolumeButtonController: NSObject, ObservableObject {
+    private static let controlUnavailableError = "iPhone volume control isn't ready. Toggle Control speaker to try again."
     @Published private(set) var isCapturing = false
     @Published private(set) var phoneOutputVolume: Float = 0.5
     @Published private(set) var lastError: String?
@@ -45,6 +46,10 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
     private var hasAdjustedPhoneVolume = false
     private var audioSessionIsActive = false
     private var lastRestorationError: String?
+    // Keep an unconfirmed restore across a quick background/foreground cycle.
+    // Otherwise the temporary capture level becomes the next session's entry.
+    private var pendingRestoration: (target: Float, startingVolume: Float)?
+    private var foregroundRecovery: (target: Float, startingVolume: Float)?
     private var suppressedTarget: (volume: Float, expires: ContinuousClock.Instant)?
     private var wantsCapture = false
     private var isInterrupted = false
@@ -117,10 +122,19 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
 
     func beginForegroundSession() {
         guard foregroundVolume == nil else { return }
+        let current = OutputVolumeChangeInterpreter.clamped(readSystemVolume())
+        let pendingEntry = pendingRestoration.flatMap { pending in
+            // An inactive session's cached value cannot decide whether the
+            // phone changed. Resolve that against the native control below.
+            if !entryReadingIsAuthoritative { return pending.target }
+            return abs(current - pending.startingVolume) < 0.005 || abs(current - pending.target) < 0.005
+                ? pending.target : nil
+        }
+        foregroundRecovery = entryReadingIsAuthoritative ? nil : pendingRestoration
         cancelRestoration()
-        hasAdjustedPhoneVolume = false
+        hasAdjustedPhoneVolume = pendingEntry.map { abs(current - $0) >= 0.005 } ?? false
         hasCapturedControlVolume = entryReadingIsAuthoritative
-        foregroundVolume = OutputVolumeChangeInterpreter.clamped(readSystemVolume())
+        foregroundVolume = pendingEntry ?? current
         scheduleEntrySnapshot()
     }
 
@@ -134,6 +148,7 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
         entrySnapshotTask?.cancel()
         entrySnapshotTask = nil
         foregroundVolume = nil
+        foregroundRecovery = nil
         hasCapturedControlVolume = false
         hasAdjustedPhoneVolume = false
     }
@@ -150,6 +165,8 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
         isActivating = false
         recenterTask?.cancel()
         recenterTask = nil
+        entrySnapshotTask?.cancel()
+        entrySnapshotTask = nil
         observation?.invalidate()
         observation = nil
         isCapturing = false
@@ -230,6 +247,7 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
         interpreter.reset(to: current)
         installObservation()
         isCapturing = true
+        if lastError == Self.controlUnavailableError { lastError = lastRestorationError }
         recenterSystemVolume(after: .milliseconds(80))
     }
 
@@ -311,22 +329,49 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
     }
 
     private func scheduleEntrySnapshot() {
-        guard foregroundVolume != nil, !hasCapturedControlVolume, !hasAdjustedPhoneVolume else { return }
-        entrySnapshotTask?.cancel()
+        guard foregroundVolume != nil, !hasCapturedControlVolume,
+              !hasAdjustedPhoneVolume || foregroundRecovery != nil,
+              entrySnapshotTask == nil else { return }
         entrySnapshotTask = Task { @MainActor [weak self] in
-            do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
-            self?.captureEntryVolumeFromControl()
+            // Native slider creation and route setup can outlast the first layout.
+            // Poll for a bounded period; never recenter without a saved reading.
+            for _ in 0..<30 {
+                do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
+                guard let self else { return }
+                self.captureEntryVolumeFromControl()
+                if self.hasCapturedControlVolume {
+                    self.entrySnapshotTask = nil
+                    return
+                }
+            }
+            guard let self else { return }
+            self.entrySnapshotTask = nil
+            if self.wantsCapture, self.audioSessionIsActive {
+                self.lastError = Self.controlUnavailableError
+            }
         }
     }
 
     private func captureEntryVolumeFromControl() {
-        guard foregroundVolume != nil, !hasCapturedControlVolume, !hasAdjustedPhoneVolume else { return }
+        guard foregroundVolume != nil, !hasCapturedControlVolume,
+              !hasAdjustedPhoneVolume || foregroundRecovery != nil else { return }
         // outputVolume can retain an inactive session's old reading. Let the
         // native volume control settle in its window before trusting its value.
-        let controlVolume = readVolumeControl?()
-            ?? (retainedVolumeView?.window != nil ? volumeSlider?.value : nil)
-        guard let controlVolume else { return }
-        let entryVolume = OutputVolumeChangeInterpreter.clamped(controlVolume)
+        guard let controlVolume = nativeControlVolume else { return }
+        let nativeVolume = OutputVolumeChangeInterpreter.clamped(controlVolume)
+        let entryVolume: Float
+        if let recovery = foregroundRecovery {
+            // The native control may still show our own pending write. Preserve
+            // that restore target only for values belonging to the old session;
+            // a different native reading is the user's new opening volume.
+            let isOldValue = abs(nativeVolume - recovery.startingVolume) < 0.005
+                || abs(nativeVolume - recovery.target) < 0.005
+            entryVolume = isOldValue ? recovery.target : nativeVolume
+            hasAdjustedPhoneVolume = abs(nativeVolume - entryVolume) >= 0.005
+            foregroundRecovery = nil
+        } else {
+            entryVolume = nativeVolume
+        }
         foregroundVolume = entryVolume
         interpreter.reset(to: entryVolume)
         hasCapturedControlVolume = true
@@ -334,8 +379,20 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
         startCaptureIfReady()
     }
 
+    private var nativeControlVolume: Float? {
+        readVolumeControl?() ?? (retainedVolumeView?.window != nil ? volumeSlider?.value : nil)
+    }
+
     private func restorePhoneVolume(_ target: Float) {
+        let current = OutputVolumeChangeInterpreter.clamped(nativeControlVolume ?? readSystemVolume())
+        // Inactive and background may both request the same restore. A slider
+        // showing our attempted target must not replace the pre-restore value.
+        let startingVolume = pendingRestoration.flatMap { pending in
+            abs(pending.target - target) < 0.005 && abs(current - target) < 0.005
+                ? pending.startingVolume : nil
+        } ?? current
         cancelRestoration()
+        pendingRestoration = (target, startingVolume)
         isRestoringVolume = true
         let generation = restorationGeneration
         // Start while the scene is leaving active state, allowing this short
@@ -376,6 +433,7 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
 
     private func finishRestoration(generation: Int) {
         guard restorationGeneration == generation else { return }
+        pendingRestoration = nil
         phoneOutputVolume = OutputVolumeChangeInterpreter.clamped(readSystemVolume())
         restorationTask = nil
         isRestoringVolume = false
@@ -387,6 +445,7 @@ final class HardwareVolumeButtonController: NSObject, ObservableObject {
         restorationGeneration &+= 1
         restorationTask?.cancel()
         restorationTask = nil
+        pendingRestoration = nil
         isRestoringVolume = false
         endRestorationBackgroundTask()
     }

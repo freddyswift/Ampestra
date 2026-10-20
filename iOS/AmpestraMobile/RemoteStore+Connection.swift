@@ -1,12 +1,27 @@
 import AppIntents
 import Foundation
 import KEFCore
+import SwiftUI
 
 /// Connection, foreground recovery, and polling share one generation to reject stale results.
 /// All operations remain main-actor isolated with RemoteStore.
 extension RemoteStore {
-    func setAppActive(_ isActive: Bool) {
-        guard appIsActive != isActive else { return }
+    func setScenePhase(_ phase: ScenePhase) {
+        switch phase {
+        case .active: setAppActive(true)
+        case .inactive: setAppActive(false, endingForegroundSession: false)
+        case .background: setAppActive(false)
+        @unknown default: setAppActive(false)
+        }
+    }
+
+    func setAppActive(_ isActive: Bool, endingForegroundSession: Bool = true) {
+        guard appIsActive != isActive else {
+            // Inactive normally precedes background. Stop network work only
+            // once, but don't lose the actual end of the foreground session.
+            if !isActive, endingForegroundSession { hardwareButtons.endForegroundSession() }
+            return
+        }
         appIsActive = isActive
 
         if isActive {
@@ -34,7 +49,8 @@ extension RemoteStore {
             isPreviewingVolume = false
             isSendingCommand = false
             discovery.stopDiscovery()
-            hardwareButtons.endForegroundSession()
+            if endingForegroundSession { hardwareButtons.endForegroundSession() }
+            else { hardwareButtons.stop() }
         }
     }
 

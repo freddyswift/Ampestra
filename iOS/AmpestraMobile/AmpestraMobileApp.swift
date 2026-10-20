@@ -1,5 +1,6 @@
 import AppIntents
 import SwiftUI
+import UIKit
 import WidgetKit
 
 @main
@@ -36,8 +37,16 @@ struct AmpestraMobileApp: App {
     var body: some Scene {
         WindowGroup {
             RemoteView(store: store)
+                // Start the restore before SwiftUI renders the inactive phase,
+                // while the native volume control is still in the active scene.
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+                    store.setScenePhase(.inactive)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                    store.setScenePhase(.active)
+                }
                 .onChange(of: scenePhase, initial: true) { _, newPhase in
-                    store.setAppActive(newPhase == .active)
+                    store.setScenePhase(newPhase)
                 }
         }
     }

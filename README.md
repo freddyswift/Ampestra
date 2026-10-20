@@ -29,6 +29,12 @@ app leaves the foreground. Ampestra saves the phone volume on foreground entry
 and restores that value when capture stops, including when you leave the app.
 It checks the native volume control before recentering and keeps the audio
 session active briefly to confirm the restore, retrying delayed volume writes.
+Temporary focus loss (for example, Control Centre) pauses capture without
+discarding the opening volume. A quick return during an unfinished restore keeps
+the original target rather than saving Ampestra's temporary capture level.
+The native control is checked again on reopening so a newly chosen phone volume
+takes precedence over a stale audio-session reading. Restore targets are discarded
+when their bounded attempt ends, including on failure.
 
 The Home Screen widget reads current speaker volume and power state when its
 timeline refreshes. It requests another automatic refresh after 15 minutes;

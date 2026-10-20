@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import SwiftUI
 import XCTest
 @testable import AmpestraMobile
 @testable import KEFCore
@@ -923,6 +924,356 @@ final class MobileBehaviorTests: XCTestCase {
         XCTAssertEqual(cachedReads, 1, "A recent host-app reading should render without another network read")
     }
 
+    func testQuickReopeningDoesNotSaveTheUnrestoredTemporaryVolume() async throws {
+        let device = PhoneVolumeTestDevice(volume: 0.72)
+        let controller = HardwareVolumeButtonController(
+            readSystemVolume: { device.sessionVolume },
+            writeSystemVolume: { device.write($0) },
+            audioSessionOperation: { device.setActive($0) }
+        )
+        controller.beginForegroundSession()
+        controller.start()
+        try await waitUntil { device.volume == 0.5 && controller.isCapturing }
+        device.ignoreNextWrites(1)
+        controller.endForegroundSession()
+        // Return before the first retry. The phone is still at Ampestra's 50%.
+        controller.beginForegroundSession()
+        controller.start()
+        try await waitUntil { controller.isCapturing }
+        controller.endForegroundSession()
+        try await waitUntil { !controller.isRestoringVolume }
+        XCTAssertEqual(device.volume, 0.72, accuracy: 0.001)
+    }
+
+    func testReopeningAndLeavingBeforeReconnectStillFinishesTheOriginalRestore() async throws {
+        let device = PhoneVolumeTestDevice(volume: 0.72)
+        let controller = HardwareVolumeButtonController(
+            readSystemVolume: { device.sessionVolume },
+            writeSystemVolume: { device.write($0) },
+            audioSessionOperation: { device.setActive($0) }
+        )
+        controller.beginForegroundSession()
+        controller.start()
+        try await waitUntil { device.volume == 0.5 && controller.isCapturing }
+        device.ignoreNextWrites(1)
+        controller.endForegroundSession()
+        controller.beginForegroundSession()
+        // No speaker connection, so capture doesn't restart before leaving.
+        controller.endForegroundSession()
+        try await waitUntil { !controller.isRestoringVolume }
+        XCTAssertEqual(device.volume, 0.72, accuracy: 0.001)
+    }
+
+    func testTemporaryInactivePhaseKeepsOpeningVolumeUntilRealBackground() async throws {
+        let device = PhoneVolumeTestDevice(volume: 0.72)
+        let controller = HardwareVolumeButtonController(
+            readSystemVolume: { device.sessionVolume },
+            writeSystemVolume: { device.write($0) },
+            audioSessionOperation: { device.setActive($0) }
+        )
+        let store = RemoteStore(defaults: makeDefaults(), hardwareButtons: controller)
+        store.setScenePhase(.active)
+        controller.start()
+        try await waitUntil { device.volume == 0.5 && controller.isCapturing }
+        store.setScenePhase(.inactive) // Control Centre or an interruption.
+        try await waitUntil { !controller.isRestoringVolume }
+        device.setExternalVolume(0.3)
+        store.setScenePhase(.active)
+        controller.start()
+        try await waitUntil { controller.isCapturing }
+        store.setScenePhase(.inactive)
+        store.setScenePhase(.background)
+        try await waitUntil { !controller.isRestoringVolume }
+        XCTAssertEqual(device.volume, 0.72, accuracy: 0.001)
+
+        device.setExternalVolume(0.25)
+        store.setScenePhase(.active)
+        controller.start()
+        store.setScenePhase(.inactive)
+        store.setScenePhase(.background)
+        try await waitUntil { !controller.isRestoringVolume }
+        XCTAssertEqual(device.volume, 0.25, accuracy: 0.001, "Real background entry starts a fresh session")
+    }
+
+    func testNativeControlCanBecomeReadyAfterTheFirstSnapshotAttempt() async throws {
+        let device = PhoneVolumeTestDevice(volume: 0.73, sessionVolume: 0.5)
+        var controlIsReady = false
+        let controller = HardwareVolumeButtonController(
+            readSystemVolume: { device.sessionVolume },
+            writeSystemVolume: { device.write($0) },
+            readVolumeControl: { controlIsReady ? device.volume : nil },
+            audioSessionOperation: { device.setActive($0) }
+        )
+        controller.beginForegroundSession()
+        controller.start()
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertFalse(controller.isCapturing)
+        controlIsReady = true
+        try await waitUntil { controller.isCapturing }
+        try await waitUntil { device.volume == 0.5 }
+        controller.endForegroundSession()
+        try await waitUntil { !controller.isRestoringVolume }
+        XCTAssertEqual(device.volume, 0.73, accuracy: 0.001)
+    }
+
+    func testNativeReopeningReadingOverridesStaleSessionDuringPendingRestore() async throws {
+        for newEntry: Float in [0, 0.25, 1] {
+            let device = PhoneVolumeTestDevice(volume: 0.73, sessionVolume: 0.5)
+            let controller = HardwareVolumeButtonController(
+                readSystemVolume: { device.sessionVolume },
+                writeSystemVolume: { device.write($0) },
+                readVolumeControl: { device.volume },
+                audioSessionOperation: { device.setActive($0) }
+            )
+            controller.beginForegroundSession()
+            controller.start()
+            try await waitUntil { controller.isCapturing && device.volume == 0.5 }
+            device.ignoreNextWrites(1)
+            controller.endForegroundSession()
+            // Control Centre changed the real volume, but the inactive audio
+            // session still reports Ampestra's old temporary level.
+            device.setExternalVolume(newEntry, sessionVolume: 0.5)
+            let writeCount = device.writes.count
+            controller.beginForegroundSession()
+            controller.start()
+            try await waitUntil { controller.isCapturing && device.volume == 0.5 }
+            controller.endForegroundSession()
+            try await waitUntil { !controller.isRestoringVolume }
+            XCTAssertEqual(device.volume, newEntry, accuracy: 0.001)
+            XCTAssertFalse(device.writes.dropFirst(writeCount).contains(0.73))
+        }
+    }
+
+    func testFailedRestorationDoesNotReuseItsTargetOnALaterOpening() async throws {
+        let device = PhoneVolumeTestDevice(volume: 0.73)
+        let controller = HardwareVolumeButtonController(
+            readSystemVolume: { device.sessionVolume },
+            writeSystemVolume: { device.write($0) },
+            readVolumeControl: { device.volume },
+            audioSessionOperation: { device.setActive($0) }
+        )
+        controller.beginForegroundSession()
+        controller.start()
+        try await waitUntil { controller.isCapturing && device.volume == 0.5 }
+        device.ignoreNextWrites(100)
+        controller.endForegroundSession()
+        try await waitUntil { !controller.isRestoringVolume }
+        XCTAssertNotNil(controller.lastError)
+        device.ignoreNextWrites(0)
+        // Once the failed attempt has ended, a later visit saves the real 50%
+        // opening level; the old 73% target must not leak into future sessions.
+        controller.beginForegroundSession()
+        controller.start()
+        try await waitUntil { controller.isCapturing }
+        controller.endForegroundSession()
+        try await waitUntil { !controller.isRestoringVolume }
+        XCTAssertEqual(device.volume, 0.5, accuracy: 0.001)
+        XCTAssertNil(controller.lastError)
+    }
+
+    func testPendingRestoreWaitsForALateNativeReadingOnReopening() async throws {
+        let device = PhoneVolumeTestDevice(volume: 0.73, sessionVolume: 0.5)
+        var isReady = true
+        let controller = HardwareVolumeButtonController(
+            readSystemVolume: { device.sessionVolume },
+            writeSystemVolume: { device.write($0) },
+            readVolumeControl: { isReady ? device.volume : nil },
+            audioSessionOperation: { device.setActive($0) }
+        )
+        controller.beginForegroundSession()
+        controller.start()
+        try await waitUntil { controller.isCapturing && device.volume == 0.5 }
+        device.ignoreNextWrites(1)
+        controller.endForegroundSession()
+        isReady = false
+        device.setExternalVolume(0.25, sessionVolume: 0.5)
+        controller.beginForegroundSession()
+        controller.start()
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertFalse(controller.isCapturing)
+        isReady = true
+        try await waitUntil { controller.isCapturing && device.volume == 0.5 }
+        controller.endForegroundSession()
+        try await waitUntil { !controller.isRestoringVolume }
+        XCTAssertEqual(device.volume, 0.25, accuracy: 0.001)
+    }
+
+    func testPendingNativeRecoveryDoesNotDependOnTheCachedSessionLevel() async throws {
+        let device = PhoneVolumeTestDevice(volume: 0.73, sessionVolume: 0.5)
+        let controller = HardwareVolumeButtonController(
+            readSystemVolume: { device.sessionVolume },
+            writeSystemVolume: { device.write($0) },
+            readVolumeControl: { device.volume },
+            audioSessionOperation: { device.setActive($0) }
+        )
+        controller.beginForegroundSession()
+        controller.start()
+        try await waitUntil { controller.isCapturing && device.volume == 0.5 }
+        device.ignoreNextWrites(1)
+        controller.endForegroundSession()
+        device.setExternalVolume(0.5, sessionVolume: 0.9)
+        controller.beginForegroundSession()
+        controller.start()
+        try await waitUntil { controller.isCapturing }
+        controller.endForegroundSession()
+        try await waitUntil { !controller.isRestoringVolume }
+        XCTAssertEqual(device.volume, 0.73, accuracy: 0.001)
+    }
+
+    func testPendingRecoveryUsesNativeVolumeBeforeAStaleExitReading() async throws {
+        let device = PhoneVolumeTestDevice(volume: 0.73)
+        let controller = HardwareVolumeButtonController(
+            readSystemVolume: { device.sessionVolume },
+            writeSystemVolume: { device.write($0) },
+            readVolumeControl: { device.volume },
+            audioSessionOperation: { device.setActive($0) }
+        )
+        controller.beginForegroundSession()
+        controller.start()
+        try await waitUntil { controller.isCapturing && device.volume == 0.5 }
+        device.setExternalVolume(0.5, sessionVolume: 0.9)
+        device.ignoreNextWrites(1)
+        controller.endForegroundSession()
+        controller.beginForegroundSession()
+        controller.start()
+        try await waitUntil { controller.isCapturing }
+        controller.endForegroundSession()
+        try await waitUntil { !controller.isRestoringVolume }
+        XCTAssertEqual(device.volume, 0.73, accuracy: 0.001)
+    }
+
+    func testInactiveThenBackgroundPreservesThePreRestoreNativeVolume() async throws {
+        let device = PhoneVolumeTestDevice(volume: 0.73)
+        var nativeSlider: Float = 0.73
+        let controller = HardwareVolumeButtonController(
+            readSystemVolume: { device.sessionVolume },
+            writeSystemVolume: { nativeSlider = $0; device.write($0) },
+            readVolumeControl: { nativeSlider },
+            audioSessionOperation: { device.setActive($0) }
+        )
+        controller.beginForegroundSession()
+        controller.start()
+        try await waitUntil { controller.isCapturing && device.volume == 0.5 }
+        device.ignoreNextWrites(2)
+        controller.stop() // willResignActive
+        controller.endForegroundSession() // followed by background
+        // The control reconciles its optimistic local value with the system.
+        nativeSlider = device.volume
+        controller.beginForegroundSession()
+        controller.start()
+        try await waitUntil { controller.isCapturing }
+        controller.endForegroundSession()
+        try await waitUntil { !controller.isRestoringVolume }
+        XCTAssertEqual(device.volume, 0.73, accuracy: 0.001)
+    }
+
+    func testOptimisticNativeSliderDoesNotReplaceAnUnfinishedRestoreTarget() async throws {
+        let device = PhoneVolumeTestDevice(volume: 0.73, sessionVolume: 0.5)
+        var nativeSlider: Float = 0.73
+        let controller = HardwareVolumeButtonController(
+            readSystemVolume: { device.sessionVolume },
+            writeSystemVolume: { nativeSlider = $0; device.write($0) },
+            readVolumeControl: { nativeSlider },
+            audioSessionOperation: { device.setActive($0) }
+        )
+        controller.beginForegroundSession()
+        controller.start()
+        try await waitUntil { controller.isCapturing && device.volume == 0.5 }
+        device.ignoreNextWrites(1)
+        controller.endForegroundSession()
+        XCTAssertEqual(nativeSlider, 0.73)
+        XCTAssertEqual(device.volume, 0.5)
+        controller.beginForegroundSession()
+        controller.start()
+        try await waitUntil { controller.isCapturing }
+        controller.endForegroundSession()
+        try await waitUntil { !controller.isRestoringVolume }
+        XCTAssertEqual(device.volume, 0.73, accuracy: 0.001)
+    }
+
+    func testRecoveryWithoutCaptureHonorsANewNativePhoneVolume() async throws {
+        let device = PhoneVolumeTestDevice(volume: 0.73, sessionVolume: 0.5)
+        let controller = HardwareVolumeButtonController(
+            readSystemVolume: { device.sessionVolume },
+            writeSystemVolume: { device.write($0) },
+            readVolumeControl: { device.volume },
+            audioSessionOperation: { device.setActive($0) }
+        )
+        controller.beginForegroundSession()
+        controller.start()
+        try await waitUntil { controller.isCapturing && device.volume == 0.5 }
+        device.ignoreNextWrites(1)
+        controller.endForegroundSession()
+        controller.beginForegroundSession()
+        device.setExternalVolume(0.8, sessionVolume: 0.5)
+        // Leave before capture has restarted or snapshot polling has run.
+        controller.endForegroundSession()
+        try await waitUntil { !controller.isRestoringVolume }
+        XCTAssertEqual(device.volume, 0.8, accuracy: 0.001)
+    }
+
+    func testNativeReadinessTimeoutDoesNotHideAnAudioActivationFailure() async throws {
+        let controller = HardwareVolumeButtonController(
+            readSystemVolume: { 0.5 },
+            writeSystemVolume: { _ in XCTFail("No volume writes without a trustworthy reading") },
+            readVolumeControl: { nil },
+            audioSessionOperation: { active in if active { throw CocoaError(.featureUnsupported) } }
+        )
+        controller.beginForegroundSession()
+        controller.start()
+        try await waitUntil { controller.lastError != nil }
+        let activationError = controller.lastError
+        try await Task.sleep(for: .milliseconds(1650))
+        XCTAssertEqual(controller.lastError, activationError)
+        XCTAssertFalse(controller.isCapturing)
+        controller.endForegroundSession()
+    }
+
+    func testVolumeControlReadinessTimeoutCanRecoverWithoutChangingAnUnknownVolume() async throws {
+        let device = PhoneVolumeTestDevice(volume: 0.73, sessionVolume: 0.5)
+        var isReady = false
+        let controller = HardwareVolumeButtonController(
+            readSystemVolume: { device.sessionVolume },
+            writeSystemVolume: { device.write($0) },
+            readVolumeControl: { isReady ? device.volume : nil },
+            audioSessionOperation: { device.setActive($0) }
+        )
+        controller.beginForegroundSession()
+        controller.start()
+        try await waitUntil(timeout: .seconds(3)) { controller.lastError != nil }
+        XCTAssertFalse(controller.isCapturing)
+        XCTAssertTrue(device.writes.isEmpty)
+        isReady = true
+        controller.start()
+        try await waitUntil { controller.isCapturing && device.volume == 0.5 }
+        XCTAssertNil(controller.lastError)
+        controller.endForegroundSession()
+        try await waitUntil { !controller.isRestoringVolume }
+        XCTAssertEqual(device.volume, 0.73, accuracy: 0.001)
+    }
+
+    func testRepeatedQuickForegroundCyclesKeepZeroAndFullOpeningVolumes() async throws {
+        for entry: Float in [0, 1] {
+            let device = PhoneVolumeTestDevice(volume: entry)
+            let controller = HardwareVolumeButtonController(
+                readSystemVolume: { device.sessionVolume },
+                writeSystemVolume: { device.write($0) },
+                audioSessionOperation: { device.setActive($0) }
+            )
+            controller.beginForegroundSession()
+            for _ in 0..<4 {
+                controller.start()
+                try await waitUntil { controller.isCapturing && device.volume == 0.5 }
+                device.ignoreNextWrites(1)
+                controller.endForegroundSession()
+                controller.beginForegroundSession()
+            }
+            controller.endForegroundSession()
+            try await waitUntil { !controller.isRestoringVolume }
+            XCTAssertEqual(device.volume, entry, accuracy: 0.001)
+        }
+    }
+
     func testNativeVolumeControlCorrectsStaleSessionValueBeforeRecentering() async throws {
         for initialVolume: Float in [0, 0.73, 1] {
             let device = PhoneVolumeTestDevice(volume: initialVolume, sessionVolume: 0.5)
@@ -1605,8 +1956,8 @@ private final class PhoneVolumeTestDevice: @unchecked Sendable {
     var deactivationVolumes: [Float] { lock.withLock { deactivatedVolumes } }
 
     func ignoreNextWrites(_ count: Int) { lock.withLock { ignoredWrites = count } }
-    func setExternalVolume(_ volume: Float) {
-        lock.withLock { actualVolume = volume; reportedVolume = volume }
+    func setExternalVolume(_ volume: Float, sessionVolume: Float? = nil) {
+        lock.withLock { actualVolume = volume; reportedVolume = sessionVolume ?? volume }
     }
     func write(_ volume: Float) {
         lock.withLock {
