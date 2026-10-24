@@ -671,6 +671,52 @@ final class MobileBehaviorTests: XCTestCase {
         XCTAssertEqual(policy.delay(afterFailure: 20), .seconds(5))
     }
 
+    func testInitialTimeoutsRecoverWithoutManualRetry() async throws {
+        let speaker = StubSpeaker(snapshots: [
+            .failure(.timedOut), .failure(.unreachable), .success(speakerSnapshot()),
+        ])
+        let store = RemoteStore(
+            defaults: makeDefaults(),
+            reconnectPolicy: ReconnectPolicy(delays: [.milliseconds(5)]),
+            pollingInterval: .seconds(60), clientFactory: { _ in speaker }
+        )
+        store.hardwareButtonsEnabled = false
+        defer { store.setAppActive(false) }
+        store.setAppActive(true)
+        store.connect(to: "speaker.local")
+
+        try await waitUntil { store.connectionState == .connected }
+
+        let attempts = await speaker.snapshotAttemptCount()
+        XCTAssertEqual(attempts, 3)
+        XCTAssertNil(store.lastError)
+        XCTAssertEqual(store.diagnosticHistory.categories, [.timeout, .unreachable])
+    }
+
+    func testBackgroundingCancelsInitialConnectionRetry() async throws {
+        let speaker = StubSpeaker(snapshots: [.failure(.timedOut), .success(speakerSnapshot())])
+        let store = RemoteStore(
+            defaults: makeDefaults(),
+            reconnectPolicy: ReconnectPolicy(delays: [.seconds(60)]),
+            clientFactory: { _ in speaker }
+        )
+        store.hardwareButtonsEnabled = false
+        store.setAppActive(true)
+        store.connect(to: "speaker.local")
+        try await waitUntil { store.lastError != nil }
+        XCTAssertEqual(store.connectionState, .reconnecting(attempt: 1))
+
+        let task = store.connectionTask
+        store.setAppActive(false)
+        await task?.value
+        let attempts = await speaker.snapshotAttemptCount()
+        XCTAssertEqual(attempts, 1)
+
+        store.setAppActive(true)
+        defer { store.setAppActive(false) }
+        try await waitUntil { store.connectionState == .connected }
+    }
+
     func testStoreRecoversAfterSpeakerDisconnect() async throws {
         let poweredOn = SpeakerSnapshot(
             status: .powerOn,
@@ -1976,6 +2022,7 @@ private actor StubSpeaker: KEFSpeakerClient {
     enum StubFailure: Error {
         case unreachable
         case cancelled
+        case timedOut
     }
 
     enum SnapshotResult {
@@ -2038,6 +2085,8 @@ private actor StubSpeaker: KEFSpeakerClient {
             return snapshot
         case .failure(let error):
             if error == .cancelled { throw URLError(.cancelled) }
+            if error == .timedOut { throw URLError(.timedOut) }
+            if error == .unreachable { throw URLError(.cannotConnectToHost) }
             throw error
         }
     }

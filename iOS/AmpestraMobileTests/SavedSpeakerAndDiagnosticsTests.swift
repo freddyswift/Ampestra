@@ -47,7 +47,7 @@ final class SavedSpeakerAndDiagnosticsTests: XCTestCase {
         XCTAssertEqual(store.diagnosticHistory.categories.last, .identityChanged)
     }
 
-    func testFailedSelectedSpeakerReconnectKeepsDefaultMACAndIdentity() async throws {
+    func testRetryingSelectedSpeakerKeepsDefaultMACAndIdentity() async throws {
         let defaults = makeDefaults()
         let records = SpeakerRecordStore(defaults: defaults)
         let first = try XCTUnwrap(records.save(host: "first.local", macAddress: "AA:AA:AA:AA:AA:AA", snapshot: snapshot("First")))
@@ -62,7 +62,7 @@ final class SavedSpeakerAndDiagnosticsTests: XCTestCase {
         try await waitUntil { store.currentSpeakerID == first.id && store.connectionState == .connected }
         await secondClient.failNextRead()
         store.connect(to: second)
-        try await waitUntil { if case .failed = store.connectionState { return true }; return false }
+        try await waitUntil { if case .reconnecting = store.connectionState { return true }; return false }
         XCTAssertEqual(store.currentSpeakerID, second.id)
         store.setAppActive(false)
         store.setAppActive(true)

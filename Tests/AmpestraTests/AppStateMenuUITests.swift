@@ -88,6 +88,72 @@ final class AppStateMenuUITests: XCTestCase {
         XCTAssertNil(appState.connectionError)
     }
 
+    func testSavedSpeakerRecoversAfterDiscoveryWindowExpires() async {
+        let speaker = MenuUITestSpeaker()
+        speaker.connectionValidationFailuresRemaining = 4
+        UserDefaults.standard.set(speaker.host, forKey: "lastConnectedHost")
+        UserDefaults.standard.set(speaker.host, forKey: "trustedSpeakerHosts")
+        let appState = AppState(
+            speakerClientFactory: MenuUITestSpeakerFactory(speaker: speaker),
+            timing: .menuUITest,
+            startImmediately: false
+        )
+        defer { appState.disconnect() }
+
+        appState.startConnection()
+
+        await waitUntil { appState.isConnected }
+        XCTAssertEqual(speaker.connectionValidationAttemptCount, 5)
+        XCTAssertNil(appState.connectionError)
+    }
+
+    func testSelectedSpeakerRetriesUntilRecoveryAndDisconnectCancelsRetries() async {
+        let speaker = MenuUITestSpeaker()
+        speaker.connectionValidationFailuresRemaining = 4
+        let appState = AppState(
+            speakerClientFactory: MenuUITestSpeakerFactory(speaker: speaker),
+            timing: .menuUITest,
+            startImmediately: false
+        )
+        defer { appState.disconnect() }
+
+        appState.connect(to: speaker.host)
+        await waitUntil { appState.isConnected }
+
+        speaker.connectionValidationError = URLError(.timedOut)
+        appState.connect(to: speaker.host)
+        await waitUntil { appState.connectionError != nil }
+        XCTAssertEqual(appState.currentHost, speaker.host)
+        appState.disconnect()
+        let attempts = speaker.connectionValidationAttemptCount
+        for _ in 0..<10 { await Task.yield() }
+        XCTAssertEqual(speaker.connectionValidationAttemptCount, attempts)
+        XCTAssertNil(appState.currentHost)
+        XCTAssertFalse(appState.isReconnecting)
+    }
+
+    func testTrustedDiscoveredHostnameRecoversWhenSavedIPAddressIsStale() async {
+        let stale = MenuUITestSpeaker(host: "10.1.1.222")
+        stale.connectionValidationError = URLError(.cannotConnectToHost)
+        let recovered = MenuUITestSpeaker()
+        recovered.connectionValidationFailuresRemaining = 3
+        UserDefaults.standard.set(stale.host, forKey: "lastConnectedHost")
+        UserDefaults.standard.set("\(stale.host)\n\(recovered.host)", forKey: "trustedSpeakerHosts")
+        let appState = AppState(
+            speakerClientFactory: MenuUITestSpeakerFactory(speaker: stale, alternateSpeaker: recovered),
+            timing: .menuUITest, startImmediately: false
+        )
+        defer { appState.disconnect() }
+        appState.startConnection()
+        appState.discovery.speakers = [
+            DiscoveredSpeaker(id: recovered.host, name: "Kitchen", host: recovered.host, macAddress: nil),
+        ]
+
+        await waitUntil { appState.isConnected }
+        XCTAssertEqual(appState.currentHost, recovered.host)
+        XCTAssertEqual(recovered.connectionValidationAttemptCount, 4)
+    }
+
     func testDiscoveryChangesNotifyAppStateObservers() {
         let appState = AppState(startImmediately: false)
         var notificationCount = 0
@@ -201,6 +267,7 @@ final class AppStateMenuUITests: XCTestCase {
         let speaker = MenuUITestSpeaker()
         speaker.connectionValidationError = URLError(.notConnectedToInternet)
         let appState = makeConnectedAppState(speaker: speaker)
+        defer { appState.disconnect() }
 
         await waitUntil { appState.needsLocalNetworkAccess }
 
@@ -250,14 +317,17 @@ final class AppStateMenuUITests: XCTestCase {
 
 private struct MenuUITestSpeakerFactory: KEFSpeakerClientFactory {
     let speaker: MenuUITestSpeaker
+    var alternateSpeaker: MenuUITestSpeaker? = nil
 
     func makeClient(host: String) -> KEFSpeakerClient {
-        speaker
+        if let alternateSpeaker, alternateSpeaker.host == host { return alternateSpeaker }
+        return speaker
     }
 }
 
 private final class MenuUITestSpeaker: KEFSpeakerClient, @unchecked Sendable {
-    let host = "speaker-kitchen.local"
+    let host: String
+    init(host: String = "speaker-kitchen.local") { self.host = host }
     var playerState = PlayerState(
         isPlaying: true,
         nowPlaying: NowPlayingInfo(title: "Track", artist: "Artist", album: nil)

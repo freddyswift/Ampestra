@@ -46,8 +46,8 @@ public final class KEFSpeakerAPI: Sendable {
 
     public let host: String
     private let session: URLSession
+    private let requestQueue = SpeakerHTTPRequestQueue()
     private let modelCache = LockedValue<String?>(nil)
-    private let supportsBatchedGetDataCache = LockedValue<Bool?>(nil)
 
     public convenience init(host: String) {
         self.init(host: host, session: Self.makeDefaultSession())
@@ -71,6 +71,10 @@ public final class KEFSpeakerAPI: Sendable {
         config.timeoutIntervalForResource = max(0.1, resourceTimeout)
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         config.urlCache = nil
+        // The speaker is an embedded HTTP server shared with KEF Connect and
+        // other remotes. Do not let overlapping polls and controls retain a
+        // separate persistent socket for each request.
+        config.httpMaximumConnectionsPerHost = 1
         return URLSession(
             configuration: config,
             delegate: SpeakerHTTPRedirectPolicy(),
@@ -91,11 +95,6 @@ public final class KEFSpeakerAPI: Sendable {
         guard let url = components.url else { throw KEFError.connectionFailed }
         let data = try await data(from: url)
         return try Self.decodeDataEntries(data)
-    }
-
-    private func getData(paths: [String], roles: String = "value") async throws -> [KEFDataEntry] {
-        guard !paths.isEmpty else { return [] }
-        return try await getData(path: paths.joined(separator: ","), roles: roles)
     }
 
     private func firstData(path: String, roles: String = "value") async throws -> KEFDataEntry {
@@ -145,17 +144,23 @@ public final class KEFSpeakerAPI: Sendable {
     }
 
     private func data(from url: URL) async throws -> Data {
-        let (bytes, response) = try await session.bytes(from: url)
-        defer { bytes.task.cancel() }
-        try validateHTTPResponse(response)
-        return try await Self.collect(bytes, maximumByteCount: Self.maximumResponseByteCount)
+        try await data(for: URLRequest(url: url))
     }
 
     private func data(for request: URLRequest) async throws -> Data {
-        let (bytes, response) = try await session.bytes(for: request)
-        defer { bytes.task.cancel() }
-        try validateHTTPResponse(response)
-        return try await Self.collect(bytes, maximumByteCount: Self.maximumResponseByteCount)
+        try await requestQueue.acquire()
+        do {
+            try Task.checkCancellation()
+            let (bytes, response) = try await session.bytes(for: request)
+            defer { bytes.task.cancel() }
+            try validateHTTPResponse(response)
+            let data = try await Self.collect(bytes, maximumByteCount: Self.maximumResponseByteCount)
+            await requestQueue.release()
+            return data
+        } catch {
+            await requestQueue.release()
+            throw error
+        }
     }
 
     private static func collect(
@@ -226,62 +231,18 @@ public final class KEFSpeakerAPI: Sendable {
     // MARK: - Read
 
     public func getSnapshot() async throws -> SpeakerSnapshot {
-        if supportsBatchedGetDataCache.value != false {
-            do {
-                let snapshot = try await getBatchedSnapshot()
-                supportsBatchedGetDataCache.value = true
-                return snapshot
-            } catch KEFError.invalidResponse {
-                supportsBatchedGetDataCache.value = false
-            } catch KEFError.apiError(_) {
-                supportsBatchedGetDataCache.value = false
-            } catch {
-                throw error
-            }
-        }
-
-        return try await getUnbatchedSnapshot()
-    }
-
-    private func getBatchedSnapshot() async throws -> SpeakerSnapshot {
-        let entries = try await getData(paths: [
-            "settings:/kef/host/speakerStatus",
-            "settings:/kef/play/physicalSource",
-            "player:volume",
-            "settings:/deviceName",
-            "settings:/releasetext",
-        ])
-
-        guard entries.count >= 5 else { throw KEFError.invalidResponse }
-
-        guard let statusRaw = entries[0].string("kefSpeakerStatus") else {
-            throw KEFError.invalidResponse
-        }
-        let volume = try Self.validatedVolume(from: entries[2])
-        let sourceRaw = entries[1].string("kefPhysicalSource") ?? "standby"
-        let model = try Self.validatedModelName(from: entries[4])
-        modelCache.value = model
-
+        // getData accepts one path. A comma-joined path is rejected by LSX II
+        // firmware, and falling back with five concurrent reads unnecessarily
+        // fills the speaker's connection pool. Read a snapshot in order instead.
+        let status = try await getStatus()
+        let source = try await getSource()
+        let volume = try await getVolume()
+        let name = try await getSpeakerName()
+        let model = try await readModel()
         return SpeakerSnapshot(
-            status: SpeakerStatus(rawValue: statusRaw),
-            source: SpeakerSource(rawValue: sourceRaw) ?? .wifi,
+            status: status,
+            source: source,
             volume: volume,
-            name: entries[3].string("string_") ?? "KEF Speaker",
-            model: model
-        )
-    }
-
-    private func getUnbatchedSnapshot() async throws -> SpeakerSnapshot {
-        async let s = getStatus()
-        async let src = getSource()
-        async let vol = getVolume()
-        async let name = getSpeakerName()
-        async let model = getModel()
-
-        return try await SpeakerSnapshot(
-            status: s,
-            source: src,
-            volume: vol,
             name: name,
             model: model
         )
@@ -323,6 +284,10 @@ public final class KEFSpeakerAPI: Sendable {
             return cached
         }
 
+        return try await readModel()
+    }
+
+    private func readModel() async throws -> String {
         let data = try await firstData(path: "settings:/releasetext")
         let model = try Self.validatedModelName(from: data)
         modelCache.value = model
@@ -451,6 +416,47 @@ public final class KEFSpeakerAPI: Sendable {
 }
 
 extension KEFSpeakerAPI: KEFSpeakerClient {}
+
+/// URLSession's connection limit alone does not serialize requests when a
+/// connection is closing. Keep reads and controls in order through body cleanup,
+/// and remove cancelled queued work before it can reach the speaker.
+private actor SpeakerHTTPRequestQueue {
+    private var busy = false
+    private var waiters: [(id: UUID, continuation: CheckedContinuation<Void, Error>)] = []
+
+    func acquire() async throws {
+        try Task.checkCancellation()
+        guard busy else {
+            busy = true
+            return
+        }
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else {
+                    waiters.append((id, continuation))
+                }
+            }
+        } onCancel: {
+            Task { await self.cancel(id) }
+        }
+    }
+
+    func release() {
+        if waiters.isEmpty {
+            busy = false
+        } else {
+            waiters.removeFirst().continuation.resume()
+        }
+    }
+
+    private func cancel(_ id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
+        waiters.remove(at: index).continuation.resume(throwing: CancellationError())
+    }
+}
 
 private final class SpeakerHTTPRedirectPolicy: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     func urlSession(

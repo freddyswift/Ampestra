@@ -111,51 +111,80 @@ extension RemoteStore {
 
         connectionTask = Task { @MainActor [weak self, candidate] in
             guard let self else { return }
-            do {
-                let snapshot = try await candidate.getSnapshot()
-                guard !Task.isCancelled,
-                      self.appIsActive,
-                      self.connectionGeneration == generation else { return }
+            while !Task.isCancelled {
+                do {
+                    let snapshot = try await candidate.getSnapshot()
+                    guard !Task.isCancelled,
+                          self.appIsActive,
+                          self.connectionGeneration == generation else { return }
 
-                if !confirmingIdentity, let savedIdentity {
-                    guard let currentRecord = self.speakerRecords.speaker(id: savedIdentity.id) else {
-                        throw SpeakerCommandError.speakerNotFound
+                    if !confirmingIdentity, let savedIdentity {
+                        guard let currentRecord = self.speakerRecords.speaker(id: savedIdentity.id) else {
+                            throw SpeakerCommandError.speakerNotFound
+                        }
+                        guard currentRecord.host == savedIdentity.host,
+                              currentRecord.host == host,
+                              currentRecord.macAddress == savedIdentity.macAddress,
+                              currentRecord.accepts(snapshot) else {
+                            throw SpeakerCommandError.speakerIdentityChanged
+                        }
                     }
-                    guard currentRecord.host == savedIdentity.host,
-                          currentRecord.host == host,
-                          currentRecord.macAddress == savedIdentity.macAddress,
-                          currentRecord.accepts(snapshot) else {
-                        throw SpeakerCommandError.speakerIdentityChanged
+                    self.speaker = candidate
+                    self.speakerMACAddress = macAddress
+                    self.apply(snapshot)
+                    self.connectionState = .connected
+                    self.localNetworkPermissionDenied = false
+                    self.manualHost = host
+                    self.defaults.set(host, forKey: SpeakerPreferenceKeys.manualHost)
+                    self.currentSpeakerID = self.speakerRecords.save(
+                        host: host,
+                        macAddress: macAddress,
+                        snapshot: snapshot,
+                        makeDefault: false
+                    )?.id
+                    AmpestraShortcuts.updateAppShortcutParameters()
+                    self.beginPolling(using: candidate)
+                    self.updateHardwareButtonCapture()
+                    self.consecutiveFailures = 0
+                    self.lastError = nil
+                    self.showNotice("Connected to \(snapshot.name)")
+                    await self.refreshPlayerState(using: candidate, snapshot: snapshot)
+                    return
+                } catch is CancellationError {
+                    return
+                } catch {
+                    guard !Task.isCancelled, self.appIsActive,
+                          self.connectionGeneration == generation else { return }
+                    self.speaker = nil
+                    self.lastError = self.message(for: error)
+                    guard self.shouldRetryConnection(after: error) else {
+                        self.connectionState = .failed(message: "Couldn’t reach \(host)")
+                        self.updateHardwareButtonCapture()
+                        return
+                    }
+                    self.consecutiveFailures += 1
+                    self.connectionState = .reconnecting(attempt: self.consecutiveFailures)
+                    self.updateHardwareButtonCapture()
+                    do {
+                        try await self.sleep(self.reconnectPolicy.delay(afterFailure: self.consecutiveFailures))
+                    } catch {
+                        return
                     }
                 }
-                self.speaker = candidate
-                self.speakerMACAddress = macAddress
-                self.apply(snapshot)
-                self.connectionState = .connected
-                self.localNetworkPermissionDenied = false
-                self.manualHost = host
-                self.defaults.set(host, forKey: SpeakerPreferenceKeys.manualHost)
-                self.currentSpeakerID = self.speakerRecords.save(
-                    host: host,
-                    macAddress: macAddress,
-                    snapshot: snapshot,
-                    makeDefault: false
-                )?.id
-                AmpestraShortcuts.updateAppShortcutParameters()
-                self.beginPolling(using: candidate)
-                self.updateHardwareButtonCapture()
-                self.showNotice("Connected to \(snapshot.name)")
-                await self.refreshPlayerState(using: candidate, snapshot: snapshot)
-            } catch is CancellationError {
-                return
-            } catch {
-                guard self.connectionGeneration == generation else { return }
-                self.speaker = nil
-                self.connectionState = .failed(message: "Couldn’t reach \(host)")
-                self.lastError = self.message(for: error)
-                self.updateHardwareButtonCapture()
             }
         }
+    }
+
+    /// Retry transport failures while foregrounded. Identity, malformed response,
+    /// and rejected-command failures need user action and must not retry forever.
+    private func shouldRetryConnection(after error: Error) -> Bool {
+        if let error = error as? URLError {
+            return [.timedOut, .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed,
+                    .networkConnectionLost, .notConnectedToInternet].contains(error.code)
+        }
+        if let error = error as? SpeakerCommandError { return error.isReachabilityFailure }
+        if let error = error as? KEFError, case .connectionFailed = error { return true }
+        return false
     }
 
     func reconnectNow() {

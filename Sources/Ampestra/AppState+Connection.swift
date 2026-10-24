@@ -44,30 +44,38 @@ extension AppState {
             var attemptedHosts = Set<String>()
             let trustedLastConnectedHost = trustedHostForAutoConnection(lastConnectedHost)
             var nextTrustedHostAttempt: ContinuousClock.Instant?
+            var trustedHostFailures = 2
 
             if let trustedLastConnectedHost {
                 attemptedHosts.insert(trustedLastConnectedHost)
                 if await establishConnection(to: trustedLastConnectedHost, retryCount: 2, trustOnSuccess: true) {
                     return
                 }
-                nextTrustedHostAttempt = ContinuousClock.now + timing.reconnectRetryDelay
+                nextTrustedHostAttempt = ContinuousClock.now + timing.connectionRetryDelay(afterAttempt: trustedHostFailures)
             }
 
             let deadline = ContinuousClock.now + timing.autoDiscoveryTimeout
-            while ContinuousClock.now < deadline {
+            // Discovery is bounded; recovery of an explicitly trusted speaker
+            // continues until it succeeds or the user disconnects/selects another.
+            while ContinuousClock.now < deadline || trustedLastConnectedHost != nil {
                 guard !Task.isCancelled else { return }
 
                 if let trustedLastConnectedHost,
                    let scheduledAttempt = nextTrustedHostAttempt,
                    ContinuousClock.now >= scheduledAttempt {
-                    if await establishConnection(
-                        to: trustedLastConnectedHost,
-                        retryCount: 1,
-                        trustOnSuccess: true
-                    ) {
-                        return
+                    // A saved numeric address can go stale while a trusted
+                    // Bonjour hostname is temporarily unavailable. Retry both;
+                    // a single failed discovery probe must not exclude it forever.
+                    let hosts = [trustedLastConnectedHost] + trustedAutoConnectionCandidates(from: discovery.speakers)
+                        .filter { $0 != trustedLastConnectedHost }
+                    for host in hosts {
+                        attemptedHosts.insert(host)
+                        if await establishConnection(to: host, retryCount: 1, trustOnSuccess: true) {
+                            return
+                        }
                     }
-                    nextTrustedHostAttempt = ContinuousClock.now + timing.reconnectRetryDelay
+                    trustedHostFailures += 1
+                    nextTrustedHostAttempt = ContinuousClock.now + timing.connectionRetryDelay(afterAttempt: trustedHostFailures)
                 }
 
                 let candidates = trustedAutoConnectionCandidates(from: discovery.speakers)
@@ -88,6 +96,7 @@ extension AppState {
             if speaker == nil {
                 updateIfChanged(\.isConnected, false)
                 updateIfChanged(\.isReconnecting, false)
+                updateIfChanged(\.currentHost, nil)
                 if !needsLocalNetworkAccess {
                     updateIfChanged(\.connectionError, discovery.speakers.isEmpty
                         ? "No KEF speaker found"
@@ -108,17 +117,18 @@ extension AppState {
         }
 
         connectionSession.connectionTask = Task { @MainActor in
-            let connected = await establishConnection(to: normalizedHost, retryCount: 3, trustOnSuccess: true)
-            guard !Task.isCancelled else { return }
-
-            if !connected {
-                updateIfChanged(\.isConnected, false)
-                updateIfChanged(\.isReconnecting, false)
-                if connectionError == nil {
-                    connectionError = "Cannot reach speaker at \(normalizedHost)"
+            var failures = 0
+            while !Task.isCancelled {
+                if await establishConnection(to: normalizedHost, retryCount: 1, trustOnSuccess: true) {
+                    return
                 }
-                speaker = nil
-                currentHost = nil
+                guard !Task.isCancelled else { return }
+                failures += 1
+                do {
+                    try await timing.sleep(timing.connectionRetryDelay(afterAttempt: failures - 1))
+                } catch {
+                    return
+                }
             }
         }
     }
@@ -207,7 +217,6 @@ extension AppState {
         updateIfChanged(\.currentHost, host)
         updateIfChanged(\.isReconnecting, true)
         updateIfChanged(\.needsLocalNetworkAccess, false)
-        updateIfChanged(\.connectionError, nil)
         var lastConnectionError: Error?
 
         for attempt in 0..<retryCount {
@@ -232,9 +241,8 @@ extension AppState {
 
         guard !Task.isCancelled, self.speaker === api else { return false }
         speaker = nil
-        updateIfChanged(\.currentHost, nil)
         updateIfChanged(\.isConnected, false)
-        updateIfChanged(\.isReconnecting, false)
+        updateIfChanged(\.isReconnecting, true)
         if let lastConnectionError {
             applyConnectionFailure(lastConnectionError, host: host)
         }

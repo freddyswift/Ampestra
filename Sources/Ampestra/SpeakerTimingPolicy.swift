@@ -19,7 +19,7 @@ struct SpeakerTimingPolicy {
     static let live = SpeakerTimingPolicy(
         autoDiscoveryTimeout: .seconds(14),
         autoDiscoveryPollInterval: .milliseconds(500),
-        connectionRetryDelays: [.milliseconds(500), .seconds(1), .seconds(2)],
+        connectionRetryDelays: [.milliseconds(500), .seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(15)],
         stateRefreshPollInterval: .milliseconds(400),
         stateChangeTimeout: .seconds(8),
         playbackStateChangeTimeout: .seconds(4),
